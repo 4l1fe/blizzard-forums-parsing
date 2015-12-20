@@ -21,12 +21,12 @@ logger.setLevel(logging.INFO)
 def writer(queue):
     while True:
         data = yield queue.get()
-        if data == 'start':
+        if data == 'start': # эту задачу завершает последний живой fetcher
             logger.info('Writer is started')
         else:
             logger.info('Data is gotten')
             soup = BeautifulSoup(data.decode(), 'html.parser')
-            with open('news.html', 'a') as file:
+            with open('news.html', 'a') as file: # todo накладывает расходы?
                 file.write(soup.prettify())
             logger.info('Data is written')
 
@@ -44,7 +44,7 @@ def main():
     @coroutine
     def fetcher(i):
         logger.info('Fetcher {} is started'.format(i))
-        global page, alive
+        global page, alive # todo убрать из глобальной области?
         while True:
             client = AsyncHTTPClient()
             user_agent = fake_useragent.UserAgent(cache=True).random #todo снести кэш-файл
@@ -57,7 +57,7 @@ def main():
                 logger.info('No data. Fetcher {} is stoped'.format(i))
                 alive -= 1
                 if not alive:
-                    queue.task_done()
+                    queue.task_done() # завершение задачи 'start'
                 break
 
     for i in range(alive):
