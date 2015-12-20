@@ -1,0 +1,4 @@
+beautifulsoup4==4.4.1
+fake-useragent==0.0.8
+pycurl==7.19.3
+tornado==4.3
