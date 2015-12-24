@@ -11,7 +11,7 @@ from tornado.gen import coroutine
 logger = logging.getLogger(__name__)
 
 
-def fetcher(url_queue, data_queue, fetcher_concurrent):
+def fetcher(url_queue, data_queue, fetcher_concurrent, use_curl):
     pid = os.getpid()
     f_id = 'Fetcher[pid={}]'.format(pid)
     logger.info('{} is started.'.format(f_id))
@@ -43,7 +43,7 @@ def fetcher(url_queue, data_queue, fetcher_concurrent):
 
         f = Future()
         yield f # бесконечное ожидание
-
-    AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # использует keep-alive
+    if use_curl:
+        AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # использует keep-alive
     tornado.ioloop.IOLoop.current().run_sync(main)
     logger.info('{} is stoped. IOloop shutdown.'.format(f_id))

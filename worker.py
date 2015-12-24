@@ -10,7 +10,7 @@ from tornado.gen import coroutine
 logger = logging.getLogger(__name__)
 
 
-def worker(url_queue, data_queue):
+def worker(url_queue, data_queue, url_cache, use_lxml):
     pid = os.getpid()
     w_id = 'Worker[pid={}]'.format(pid)
     logger.info('{} is started.'.format(w_id))
@@ -20,13 +20,13 @@ def worker(url_queue, data_queue):
     collection = db['mage']
     logger.info('{} is connected to mongo {}'.format(w_id, mc.address))
 
-    cached_urls = set()
+    # cached_urls = set()
 
     while True:
         start_time = time.time()
         url, data = data_queue.get()
         logger.info('{} data is gotten'.format(w_id))
-        soup = BeautifulSoup(data.decode().replace('\n', ''), 'html.parser')
+        soup = BeautifulSoup(data.decode().replace('\n', ''), 'lxml' if use_lxml else 'html.parser')
 
         pagination = soup.select('ul.ui-pagination')
         if pagination:
@@ -40,10 +40,12 @@ def worker(url_queue, data_queue):
                 max_page = pagination.contents[last_child].string
             for i in range(2, int(max_page) + 1):
                 url = url.split('?')[0] + '?' + query_param_name + '=' + str(i)
-                if url not in cached_urls: #todo сделать глобальным кэшем между воркерами
+                if url not in url_cache: #todo сделать глобальным кэшем между воркерами
                     logger.info('{} put new url {}'.format(w_id, url))
-                    cached_urls.add(url)
+                    url_cache.add(url)
                     url_queue.put(url)
+
+
 
         documents = []
         for topic in soup.select('tr.regular-topic'):
