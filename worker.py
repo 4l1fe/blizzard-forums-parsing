@@ -2,6 +2,7 @@ import logging
 import time
 import os
 import tornado.ioloop
+import constants as cns
 from pymongo import MongoClient
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
@@ -16,21 +17,24 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
     def _put_url(url):
         if url not in url_cache:
             url_cache.add(url)
-            logger.debug('{} put new url {}'.format(w_id, url))
+            logger.debug('Put new url {}'.format(url))
             url_queue.put(url)
 
     pid = os.getpid()
-    w_id = 'Worker[pid={}]'.format(pid)
     mc = MongoClient('localhost', 27017)
     db = mc['hearthstone']
     collection = db['mage']
-    logger.info('{} is started. Mongo connection {}'.format(w_id, mc.address))
+    logger.info('Started. Mongo connection {}'.format(mc.address))
 
     while True:
         start_time = time.time()
-        base_url, data = data_queue.get()
+        data = data_queue.get()
+        if data == cns.FINISH_COMMAND:
+            data_queue.task_done()
+            break
+        base_url, data = data
         documents = []
-        logger.info('{} data is gotten'.format(w_id))
+        logger.info('Data is gotten')
         soup = BeautifulSoup(data.decode().replace('\n', ''), #todo убрать пробельные символы
                              'lxml' if use_lxml else 'html.parser')
 
@@ -86,10 +90,13 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
             d['text'] = post.select('div.post-content')[0].get_text()
             documents.append(d)
 
-        collection.insert_many(documents)
+        if not documents:
+            logger.warning('No documents for url {}'.format(base_url))
+        else:
+            collection.insert_many(documents)
         data_queue.task_done()
 
         end_time = time.time()
-        logger.debug('{} data is written. Duration - {}'.format(w_id, end_time-start_time))
+        logger.debug('Data is written. Duration - {}'.format(end_time-start_time))
 
-    logger.info('{} is stoped'.format(w_id))
+    logger.info('Stoped')

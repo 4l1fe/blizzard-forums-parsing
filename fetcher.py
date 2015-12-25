@@ -2,6 +2,7 @@ import os
 import logging
 import fake_useragent
 import tornado.ioloop
+import constants as cns
 from concurrent.futures import ThreadPoolExecutor as TPE
 from tornado.httpclient import AsyncHTTPClient
 from tornado.concurrent import Future
@@ -10,40 +11,35 @@ from tornado.gen import coroutine
 
 logger = logging.getLogger(__name__)
 
-
 def fetcher(url_queue, data_queue, fetcher_concurrent, use_curl):
     pid = os.getpid()
-    f_id = 'Fetcher[pid={}]'.format(pid)
-    logger.info('{} is started.'.format(f_id))
     pool = TPE(fetcher_concurrent)
+    logger.info('Fetcher is started.')
 
     @coroutine
     def main():
 
         @coroutine
-        def fetch():
+        def fetch(i):
             while True:
                 url = yield pool.submit(url_queue.get)
-                logger.debug('{} got url {}'.format(f_id, url))
+                if url == cns.FINISH_COMMAND:
+                    logger.info('Concurrent {} is stoped'.format(i))
+                    url_queue.task_done()
+                    break
+                logger.debug('Got url {}'.format(url))
                 client = AsyncHTTPClient()
                 user_agent = fake_useragent.UserAgent(cache=True).random #todo снести кэш-файл
                 response = yield client.fetch(url, user_agent=user_agent)
                 if response.body:
                     yield pool.submit(data_queue.put, (url, response.body))
-                    logger.debug("{} request time - {}. {}".format(f_id, response.request_time, url))
-                else:
-                    logger.info('{} is stoped. No data.'.format(f_id))
-                    break
+                    logger.debug("Request time - {}. {}".format(response.request_time, url))
                 url_queue.task_done()
 
-        logger.info('{} starts {} concurrent requests'.format(f_id, fetcher_concurrent))
-        for _ in range(fetcher_concurrent):
-            fetch()
-
-        f = Future()
-        yield f # бесконечное ожидание
+        logger.info('Start {} concurrent requests'.format(fetcher_concurrent))
+        completed = yield [fetch(i) for i in range(1, fetcher_concurrent+1)]
 
     if use_curl:
         AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # использует keep-alive
     tornado.ioloop.IOLoop.current().run_sync(main)
-    logger.info('{} is stoped. IOloop shutdown.'.format(f_id))
+    logger.info('Stoped. IOloop shutdown.')
