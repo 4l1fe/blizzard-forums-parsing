@@ -14,12 +14,10 @@ logger = logging.getLogger(__name__)
 def worker(url_queue, data_queue, url_cache, use_lxml):
     pid = os.getpid()
     w_id = 'Worker[pid={}]'.format(pid)
-    logger.info('{} is started.'.format(w_id))
-
     mc = MongoClient('localhost', 27017)
     db = mc['hearthstone']
     collection = db['mage']
-    logger.info('{} is connected to mongo {}'.format(w_id, mc.address))
+    logger.info('{} is started. Mongo connection {}'.format(w_id, mc.address))
 
     while True:
         start_time = time.time()
@@ -44,7 +42,7 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
                 url = base_url.split('?')[0] + '?' + query_param_name + '=' + str(i)
                 if url not in url_cache:
                     url_cache.add(url)
-                    logger.info('{} put new url {}'.format(w_id, url))
+                    logger.debug('{} put new url {}'.format(w_id, url))
                     url_queue.put(url)
 
         # парсинг данных, новыхх ссылок и запись в БД
@@ -58,7 +56,7 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
             url = urljoin(base_url, d['href'])
             if url not in url_cache:
                 url_cache.add(url)
-                logger.info('{} put new url {}'.format(w_id, url))
+                logger.debug('{} put new url {}'.format(w_id, url))
                 url_queue.put(url)
             documents.append(d)
 
@@ -68,13 +66,22 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
             d['author'] = topic.contents[2].get_text()
             d['replies'] = topic.contents[3].get_text()
             d['views'] = topic.contents[4].get_text()
-            d['replies'] = topic.select('td.title-cell > meta[itemprop=dateModified]')[0].attrs['content']
+            d['modified'] = topic.select('td.title-cell > meta[itemprop=dateModified]')[0].attrs['content']
+            documents.append(d)
+
+        for post in soup.select('div.post-interior'):
+            d = {}
+            d['id'] = post.select('a.post-index')[0].get_text()
+            d['user'] = post.select('div.context-user > strong')[0].get_text()
+            d['created'] = post.select('meta[itemprop=dateCreated]')[0].attrs['content']
+            d['rating'] = post.select('div.post-rating')[0].get_text()
+            d['text'] = post.select('div.post-content')[0].get_text()
             documents.append(d)
 
         collection.insert_many(documents)
         data_queue.task_done()
 
         end_time = time.time()
-        logger.info('{} data is written. Duration - {}'.format(w_id, end_time-start_time))
+        logger.debug('{} data is written. Duration - {}'.format(w_id, end_time-start_time))
 
     logger.info('{} is stoped'.format(w_id))

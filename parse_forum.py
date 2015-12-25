@@ -19,8 +19,7 @@ logger.setLevel(logging.INFO)
 def main(args):
     url_queue, data_queue = JoinableQueue(), JoinableQueue() #todo maxsize
     url_cache = set() # todo: обезопасить доступ мьютексом?
-    logger.info('Main[pid={}] process is started'.format(os.getpid()))
-    logger.info('Args: {}'.format(args))
+    logger.info('Main[pid={}] process is started. Args: '.format(os.getpid(), args))
 
     logger.info('Start {} fetchers'.format(args.fetcher_count))
 
