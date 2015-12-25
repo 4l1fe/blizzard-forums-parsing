@@ -1,12 +1,10 @@
 import logging
 import time
 import os
-import tornado.ioloop
 import constants as cns
 from pymongo import MongoClient
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
-from tornado.gen import coroutine
 
 
 logger = logging.getLogger(__name__)
