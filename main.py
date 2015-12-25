@@ -1,11 +1,9 @@
 import logging
-import os
-import sys
 import time
 import constants as cns
 from itertools import chain
 from logging.config import dictConfig
-from argparse import ArgumentParser, RawTextHelpFormatter
+from argparse import ArgumentParser
 from multiprocessing import Process, JoinableQueue
 from fetcher import fetcher
 from worker import worker
@@ -13,7 +11,7 @@ from worker import worker
 
 logger = logging.getLogger('main')
 
-LOGGING =  {
+LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
@@ -47,8 +45,8 @@ LOGGING =  {
 
 
 def main(args):
-    url_queue, data_queue = JoinableQueue(), JoinableQueue() #todo maxsize
-    url_cache = set() # todo: обезопасить доступ мьютексом?
+    url_queue, data_queue = JoinableQueue(), JoinableQueue()
+    url_cache = set() # todo: обезопасить доступ ?
     logger.info('Main process is started. Args: {}'.format(args))
 
     logger.info('Start {} fetchers'.format(args.fetcher_count))
@@ -73,7 +71,7 @@ def main(args):
         uq_size = url_queue.qsize(); dq_size = data_queue.qsize()
         logger.debug('Url queue size: {}; Data queue size: {}'.format(uq_size, dq_size))
         if not (uq_size or dq_size): #todo изменить на queue.join() ?
-            # завершить нужно все конкурентные запросы по всем фетчерам и воркерам
+            # завершить нужно все конкурентные запросы по всем фетчерам и воркеров
             for _ in range(args.fetcher_concurrent*args.fetcher_count):
                 url_queue.put(cns.FINISH_COMMAND)
             for _ in range(args.worker_count):

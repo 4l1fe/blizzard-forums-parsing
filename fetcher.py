@@ -5,14 +5,13 @@ import tornado.ioloop
 import constants as cns
 from concurrent.futures import ThreadPoolExecutor as TPE
 from tornado.httpclient import AsyncHTTPClient
-from tornado.concurrent import Future
 from tornado.gen import coroutine
 
 
 logger = logging.getLogger(__name__)
 
+
 def fetcher(url_queue, data_queue, fetcher_concurrent, use_curl):
-    pid = os.getpid()
     pool = TPE(fetcher_concurrent)
     logger.info('Fetcher is started.')
 
@@ -29,7 +28,7 @@ def fetcher(url_queue, data_queue, fetcher_concurrent, use_curl):
                     break
                 logger.debug('Got url {}'.format(url))
                 client = AsyncHTTPClient()
-                user_agent = fake_useragent.UserAgent(cache=True).random #todo снести кэш-файл
+                user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
                 response = yield client.fetch(url, user_agent=user_agent)
                 if response.body:
                     yield pool.submit(data_queue.put, (url, response.body))
