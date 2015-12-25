@@ -39,7 +39,7 @@ def main(args):
 
     logger.info('=================================Start parsing=================================')
     start_time = time.time()
-    url_queue.put('http://eu.battle.net/hearthstone/ru/forum/10362657/')
+    url_queue.put('http://eu.battle.net/hearthstone/ru/forum/')
     # url_queue.join()
     # logger.info('Url queue is empty')
     # data_queue.join()
@@ -55,6 +55,6 @@ if __name__ == '__main__':
     parser.add_argument('--worker-count', type=int, default=1)
     parser.add_argument('--use-curl', action='store_true')
     parser.add_argument('--use-lxml', action='store_true')
-    args = parser.parse_args(['--use-curl', '--use-lxml'])
+    args = parser.parse_args()
 
     main(args)
