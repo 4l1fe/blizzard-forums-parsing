@@ -43,6 +43,7 @@ def fetcher(url_queue, data_queue, fetcher_concurrent, use_curl):
 
         f = Future()
         yield f # бесконечное ожидание
+
     if use_curl:
         AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # использует keep-alive
     tornado.ioloop.IOLoop.current().run_sync(main)
