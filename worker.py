@@ -12,6 +12,13 @@ logger = logging.getLogger(__name__)
 
 
 def worker(url_queue, data_queue, url_cache, use_lxml):
+
+    def _put_url(url):
+        if url not in url_cache:
+            url_cache.add(url)
+            logger.debug('{} put new url {}'.format(w_id, url))
+            url_queue.put(url)
+
     pid = os.getpid()
     w_id = 'Worker[pid={}]'.format(pid)
     mc = MongoClient('localhost', 27017)
@@ -40,10 +47,7 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
                 max_page = pagination.contents[last_child].string
             for i in range(2, int(max_page) + 1):
                 url = base_url.split('?')[0] + '?' + query_param_name + '=' + str(i)
-                if url not in url_cache:
-                    url_cache.add(url)
-                    logger.debug('{} put new url {}'.format(w_id, url))
-                    url_queue.put(url)
+                _put_url(url)
 
         # парсинг данных, новыхх ссылок и запись в БД
         for subcategory in soup.select('li.child-forum'):
@@ -51,13 +55,11 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
             descendants = list(d for d in subcategory.descendants if not isinstance(d, str))
             if not descendants: continue
             d['name'] = descendants[-1].get_text()
-            d['href'] = descendants[0].attrs['href']
             d['description'] = descendants[-3].get_text()
-            url = urljoin(base_url, d['href'])
-            if url not in url_cache:
-                url_cache.add(url)
-                logger.debug('{} put new url {}'.format(w_id, url))
-                url_queue.put(url)
+            href = descendants[0].attrs['href']
+            url = urljoin(base_url, href)
+            d['url'] = url
+            _put_url(url)
             documents.append(d)
 
         for topic in soup.select('tr.regular-topic'):
@@ -67,14 +69,20 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
             d['replies'] = topic.contents[3].get_text()
             d['views'] = topic.contents[4].get_text()
             d['modified'] = topic.select('td.title-cell > meta[itemprop=dateModified]')[0].attrs['content']
+            href = topic.select('td.title-cell > a')[0].attrs['href']
+            url = urljoin(base_url, href)
+            d['url'] = url
+            _put_url(url)
             documents.append(d)
 
         for post in soup.select('div.post-interior'):
             d = {}
-            d['id'] = post.select('a.post-index')[0].get_text()
+            d['number'] = post.select('a.post-index')[0].get_text()
             d['user'] = post.select('div.context-user > strong')[0].get_text()
             d['created'] = post.select('meta[itemprop=dateCreated]')[0].attrs['content']
-            d['rating'] = post.select('div.post-rating')[0].get_text()
+            tag = post.select('div.post-rating')
+            if tag:
+                d['rating']  = tag[0].get_text()
             d['text'] = post.select('div.post-content')[0].get_text()
             documents.append(d)
 
