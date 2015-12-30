@@ -2,6 +2,7 @@ import logging
 import time
 import os
 import constants as cns
+import redis
 from pymongo import MongoClient
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
@@ -21,7 +22,7 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
     pid = os.getpid()
     mc = MongoClient('localhost', 27017)
     db = mc['hearthstone']
-    collection = db['mage']
+    collection = db['posts']
     logger.info('Started. Mongo connection {}'.format(mc.address))
 
     while True:
@@ -95,6 +96,6 @@ def worker(url_queue, data_queue, url_cache, use_lxml):
         data_queue.task_done()
 
         end_time = time.time()
-        logger.debug('Data is written. Duration - {}'.format(end_time-start_time))
+        logger.debug('Data is written. Duration: {}'.format(end_time-start_time))
 
     logger.info('Stoped')

@@ -81,11 +81,11 @@ def main(args):
     for p in chain(fetchers, workers):
         p.join()
     end_time = time.time()
-    logger.info('End parsing. Duration - {}'.format(end_time-start_time))
+    logger.info('End parsing. Duration: {}'.format(end_time-start_time))
 
 
 if __name__ == '__main__':
-    # 'http://eu.battle.net/hearthstone/ru/forum/'
+    # http://eu.battle.net/hearthstone/ru/forum/
     parser = ArgumentParser()
     parser.add_argument('url', metavar='<url>')
     parser.add_argument('--fetcher-count', type=int, default=1, metavar='<count>',

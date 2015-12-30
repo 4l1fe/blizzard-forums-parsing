@@ -29,11 +29,15 @@ def fetcher(url_queue, data_queue, fetcher_concurrent, use_curl):
                 logger.debug('Got url {}'.format(url))
                 client = AsyncHTTPClient()
                 user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
-                response = yield client.fetch(url, user_agent=user_agent)
-                if response.body:
-                    yield pool.submit(data_queue.put, (url, response.body))
-                    logger.debug("Request time - {}. {}".format(response.request_time, url))
-                url_queue.task_done()
+                try:
+                    response = yield client.fetch(url, user_agent=user_agent)
+                    if response.body:
+                        yield pool.submit(data_queue.put, (url, response.body))
+                        logger.debug("Request time: {}. {}".format(response.request_time, url))
+                except:
+                    logger.exception('Error with url {}'.format(url))
+                finally:
+                    url_queue.task_done()
 
         logger.info('Start {} concurrent requests'.format(fetcher_concurrent))
         completed = yield [fetch(i) for i in range(1, fetcher_concurrent+1)]
