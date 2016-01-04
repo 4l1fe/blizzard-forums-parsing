@@ -20,9 +20,9 @@ def fetcher(options, fetcher_concurrent, use_curl):
 
         @coroutine
         def fetch(i):
-            r = tornadoredis.Client(connection_pool=pool)
+            tr_client = tornadoredis.Client(connection_pool=pool)
             while True:
-                url = yield Task(r.rpop, cns.URL_QUEUE_KEY)
+                url = yield Task(tr_client.rpop, cns.URL_QUEUE_KEY)
                 if not url:
                     continue
                 elif url == cns.FINISH_COMMAND:
@@ -36,9 +36,9 @@ def fetcher(options, fetcher_concurrent, use_curl):
                         response = yield client.fetch(url, user_agent=user_agent)
                         if response.body:
                             key = cns.DATA_KEY_PREFIX + url
-                            pipeline = r.pipeline()
-                            pipeline.hset(key, 'content', response.body)
+                            pipeline = tr_client.pipeline()
                             pipeline.lpush(cns.DATA_QUEUE_KEY, key)
+                            pipeline.set(key, response.body)
                             yield Task(pipeline.execute)
                             logger.debug("Request time: {}. {}".format(response.request_time, url))
                     except:
