@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def fetcher(options, fetcher_concurrent, use_curl):
     pool = tornadoredis.ConnectionPool(fetcher_concurrent, wait_for_available=True,
                                        host=options.redis_host, port=options.redis_port)
-    logger.info('Fetcher is started. Redis connection {}'.format((options.redis_host, options.redis_port)))
+    logger.info('Fetcher is started. Redis connection {}:{}'.format(options.redis_host, options.redis_port))
 
     @coroutine
     def main():
@@ -22,10 +22,9 @@ def fetcher(options, fetcher_concurrent, use_curl):
         def fetch(i):
             tr_client = tornadoredis.Client(connection_pool=pool)
             while True:
-                url = yield Task(tr_client.rpop, cns.URL_QUEUE_KEY)
-                if not url:
-                    continue
-                elif url == cns.FINISH_COMMAND:
+                url = yield Task(tr_client.brpop, cns.URL_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+                url = url[cns.URL_QUEUE_KEY]
+                if url == cns.FINISH_COMMAND:
                     logger.info('Concurrent {} is stoped'.format(i))
                     break
                 else:
@@ -38,7 +37,7 @@ def fetcher(options, fetcher_concurrent, use_curl):
                             key = cns.DATA_KEY_PREFIX + url
                             pipeline = tr_client.pipeline()
                             pipeline.lpush(cns.DATA_QUEUE_KEY, key)
-                            pipeline.set(key, response.body)
+                            pipeline.set(key, response.body.decode())
                             yield Task(pipeline.execute)
                             logger.debug("Request time: {}. {}".format(response.request_time, url))
                     except:

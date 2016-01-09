@@ -16,8 +16,8 @@ def worker(options, use_lxml):
     db = mc[cns.MONGO_DB]
     collection = db[cns.MONGO_COLLECTION]
     r_client = Redis(options.redis_host, options.redis_port)
-    logger.info('Started. Mongo connection {}. Redis connection {}'.format((options.mongo_host, options.mongo_port),
-                                                      (options.redis_host, options.redis_port)))
+    logger.info('Started. Mongo connection {}:{}. Redis connection {}:{}'.format(options.mongo_host, options.mongo_port,
+                                                      options.redis_host, options.redis_port))
 
     def _put_url(url):
         if not r_client.sismember(cns.PARSED_URLS_KEY, url):
@@ -29,23 +29,18 @@ def worker(options, use_lxml):
 
     while True:
         start_time = time.time()
-        data_key = r_client.rpop(cns.DATA_QUEUE_KEY)
-        if not data_key:
-            continue
-        data_key = data_key.decode()
+        data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+        data_key = data_key[1].decode()
         if data_key == cns.FINISH_COMMAND:
             break
-
         try:
             data = r_client.get(data_key)
             r_client.delete(data_key)
             base_url = data_key.replace(cns.DATA_KEY_PREFIX, '')
             documents = []
             logger.info('Data is gotten')
-            soup = BeautifulSoup(data.decode().replace(r'\n', ''), #todo убрать пробельные символы
+            soup = BeautifulSoup(data.decode().replace('\n', ''), #todo убрать пробельные символы
                                  'lxml' if use_lxml else 'html.parser')
-
-            # парсинг новых ссылок из пагинации
             pagination = soup.select('ul.ui-pagination')
             if pagination:
                 pagination = pagination[0]
@@ -60,7 +55,6 @@ def worker(options, use_lxml):
                     url = base_url.split('?')[0] + '?' + query_param_name + '=' + str(i)
                     _put_url(url)
 
-            # парсинг данных, новых ссылок и запись в БД
             for subcategory in soup.select('li.child-forum'):
                 d = {}
                 descendants = list(d for d in subcategory.descendants if not isinstance(d, str))
@@ -70,21 +64,22 @@ def worker(options, use_lxml):
                 href = descendants[0].attrs['href']
                 url = urljoin(base_url, href)
                 d['url'] = url
-                _put_url(url)
                 documents.append(d)
+                _put_url(url)
 
             for topic in soup.select('tr.regular-topic'):
                 d = {}
-                d['name'] = topic.contents[1].get_text()
-                d['author'] = topic.contents[2].get_text()
-                d['replies'] = topic.contents[3].get_text()
-                d['views'] = topic.contents[4].get_text()
-                d['modified'] = topic.select('td.title-cell > meta[itemprop=dateModified]')[0].attrs['content']
-                href = topic.select('td.title-cell > a')[0].attrs['href']
-                url = urljoin(base_url, href)
+                a_tag = topic.find(class_='topic-title')
+                url = urljoin(base_url, a_tag['href'])
+                d['name'] = a_tag.get_text()
+                d['author'] = topic.find(class_='author-cell').get_text()
+                d['replies'] = topic.find(class_='reply-cell').get_text()
+                d['views'] = topic.find(class_='view-cell').get_text()
+                d['created'] = topic.find('meta', itemprop='dateCreated')['content']
+                d['modified'] = topic.find('meta', itemprop='dateModified')['content']
                 d['url'] = url
-                _put_url(url)
                 documents.append(d)
+                _put_url(url)
 
             for post in soup.select('div.post-interior'):
                 d = {}
@@ -93,7 +88,7 @@ def worker(options, use_lxml):
                 d['created'] = post.select('meta[itemprop=dateCreated]')[0].attrs['content']
                 tag = post.select('div.post-rating')
                 if tag:
-                    d['rating']  = tag[0].get_text()
+                    d['rating'] = tag[0].get_text()
                 d['text'] = post.select('div.post-content')[0].get_text()
                 documents.append(d)
 
@@ -101,10 +96,10 @@ def worker(options, use_lxml):
                 logger.warning('No documents for url {}'.format(base_url))
             else:
                 collection.insert_many(documents)
+
+            end_time = time.time()
+            logger.debug('Data is written. Duration: {}'.format(end_time-start_time))
         except:
             logger.exception('Parsing error for key {}'.format(data_key))
-
-        end_time = time.time()
-        logger.debug('Data is written. Duration: {}'.format(end_time-start_time))
 
     logger.info('Stoped')
