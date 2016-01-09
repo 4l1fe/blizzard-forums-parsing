@@ -77,6 +77,7 @@ def main(options):
     logger.info('Waiting for processes terminating')
     for p in chain(fetchers, workers):
         p.join()
+    r.delete(cns.PARSED_URLS_KEY)
     end_time = time.time()
     logger.info('End parsing. Duration: {}'.format(end_time-start_time))
 
