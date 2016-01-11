@@ -78,7 +78,7 @@ def worker(options, use_lxml):
                 href = descendants[0].attrs['href']
                 d['url'] = urljoin(base_url, href)
                 documents.append(d)
-                new_urls.append(['url'])
+                new_urls.append(d['url'])
 
             for topic in soup.select('tr.regular-topic'):
                 d = {}
