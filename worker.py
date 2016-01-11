@@ -78,21 +78,20 @@ def worker(options, use_lxml):
                 href = descendants[0].attrs['href']
                 d['url'] = urljoin(base_url, href)
                 documents.append(d)
-                new_urls.append(url)
+                new_urls.append(['url'])
 
             for topic in soup.select('tr.regular-topic'):
                 d = {}
                 a_tag = topic.find(class_='topic-title')
-                url = urljoin(base_url, a_tag['href'])
+                d['url'] = urljoin(base_url, a_tag['href'])
                 d['name'] = a_tag.get_text()
                 d['author'] = topic.find(class_='author-cell').get_text()
                 d['replies'] = topic.find(class_='reply-cell').get_text()
                 d['views'] = topic.find(class_='view-cell').get_text()
                 d['created'] = topic.find('meta', itemprop='dateCreated')['content']
                 d['modified'] = topic.find('meta', itemprop='dateModified')['content']
-                d['url'] = url
                 documents.append(d)
-                new_urls.append(url)
+                new_urls.append(d['url'])
 
             for post in soup.select('div.post-interior'):
                 d = {}
