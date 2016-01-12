@@ -22,7 +22,7 @@ def worker(options, use_lxml):
     collection = db[cns.MONGO_COLLECTION]
     r_client = Redis(options.redis_host, options.redis_port)
     logger.info('Started. Mongo connection {}:{}. Redis connection {}:{}'.format(options.mongo_host, options.mongo_port,
-                                                      options.redis_host, options.redis_port))
+                                                                                options.redis_host, options.redis_port))
 
     def _put_urls(urls):
         """Вставка ссылок в очередь пачкой. Ссылки сохраняются
