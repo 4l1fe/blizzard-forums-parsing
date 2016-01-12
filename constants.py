@@ -1,5 +1,6 @@
 MONGO_DB = 'hearthstone'
 MONGO_COLLECTION = 'posts'
+MONGO_LOG_COLLECTION = 'logs'
 
 FINISH_COMMAND = 'finish'
 BLOCKING_TIMEOUT = 0

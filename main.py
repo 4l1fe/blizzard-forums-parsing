@@ -29,10 +29,17 @@ LOGGING = {
             'stream': 'ext://sys.stdout',
             'formatter': 'custom',
         },
+        'mongo': {
+            'level': 'DEBUG',
+            'class': 'utils.MongoHandler',
+            'host': 'localhost',
+            'port': 27017,
+            'fields': ('ip', 'asctime', 'msecs', 'name', 'process', 'levelname', 'message'),
+        },
     },
     'loggers': {
         '': {
-            'handlers': ['stream'],
+            'handlers': ['stream', 'mongo'],
             'level': 'DEBUG',
             'propagate': True
         },
@@ -106,5 +113,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--use-lxml', action='store_true', help="isn't used by default")
 
     options = parser.parse_args()
+    LOGGING['handlers']['mongo']['host'] = options.mongo_host
+    LOGGING['handlers']['mongo']['port'] = options.mongo_port
     dictConfig(LOGGING)
     main(options)
