@@ -11,6 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 def fetcher(options, fetcher_concurrent, use_curl):
+    """Фетчер берёт ссылки из редиса, созданные воркерами, и выполняет запросы
+    к внешним ресурсам асинхронно, далее складывает их в редис на обработку воркерами.
+
+    Логирование через обработчик MongoHandler блокирует основной поток IOLoop.
+    Сделано так из-за маленькой задержки на логирование, создание неблогирующего
+    логера несет лишние накладные расходы.
+    """
+
     pool = tornadoredis.ConnectionPool(fetcher_concurrent, wait_for_available=True,
                                        host=options.redis_host, port=options.redis_port)
     logger.info('Fetcher is started. Redis connection {}:{}'.format(options.redis_host, options.redis_port))
