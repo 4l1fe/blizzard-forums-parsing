@@ -1,5 +1,5 @@
-import socket
 import fcntl
+import socket
 import struct
 import pymongo
 import constants as cns
@@ -62,43 +62,3 @@ class MongoHandler(Handler):
             collection.insert_one(document)
         except Exception:
             self.handleError(record)
-
-
-class Tree:
-    """Сущность дерева
-    """
-
-    class Node:
-        """Сущность узла дерева необходима только лишь для простого доступа к данным родительских узлов(в редисе) в
-        распределённой системе при сохранении их в БД обобщенным документом. Т.е. документ будет содержать данные из узлов
-        дерева от листа до корня.
-        """
-
-        def __init__(self, position=None, data=None, parent=None, level=cns.NODE_FORUM_LEVEL):
-            self.position = position
-            self.data = data
-            self.level = level
-            self._parent = parent
-
-        def get_ancestors(self):
-            p = self._parent
-            while p:
-                yield p
-                p = p.parent
-
-    def __init__(self, redis_client):
-        self.redis_client = redis_client
-
-    def add_node(self, ):
-        if not isinstance(nodes, (list, tuple, set)):
-            nodes = (nodes, )
-        pipeline = self.redis_client.pipeline()
-        for node in nodes:
-            pipeline.hmset(node.position, 'data', node.data, 'level', node.level, 'parent', node.parent)
-        pipeline.execute()
-
-    def get(self, position):
-        data, level, parent = self.redis_client.hmget(position, 'data', 'level', 'parent')
-        if not all((data, level, parent,)):
-            return None
-        return self.Node(position=position, data=data, level=level, parent=parent)

@@ -8,8 +8,7 @@ from multiprocessing import Process
 from redis import Redis
 from fetcher import fetcher
 from worker import worker
-from utils import Node
-
+from tree import Tree
 
 logger = logging.getLogger('main')
 
@@ -79,7 +78,7 @@ def main(options):
         p.start()
         workers.append(p)
 
-    Node(position=cns.NODE_KEY_PREFIX+options.url, client=r).save()  # создание корневого узла иерархии данных
+    Tree(r).add_root(options.url)
 
     logger.info('=================================Start parsing=================================')
     start_time = time.time()

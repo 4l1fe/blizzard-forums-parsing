@@ -1,11 +1,12 @@
 import logging
 import time
 import constants as cns
+from collections import defaultdict
 from urllib.parse import urljoin
 from redis import Redis
 from pymongo import MongoClient
 from bs4 import BeautifulSoup
-from utils import Node
+from tree import Tree, Node
 
 
 logger = logging.getLogger(__name__)
@@ -23,10 +24,11 @@ def worker(options, use_lxml):
     db = mc[cns.MONGO_DB]
     collection = db[cns.MONGO_COLLECTION]
     r_client = Redis(options.redis_host, options.redis_port)
+    tree = Tree(r_client)
     logger.info('Started. Mongo connection {}:{}. Redis connection {}:{}'.format(options.mongo_host, options.mongo_port,
                                                                                 options.redis_host, options.redis_port))
 
-    def _put_urls(urls):
+    def put_urls(urls):
         """Вставка ссылок в очередь пачкой. Ссылки сохраняются
         в множество запрошенных, а в очередь только в него не входящие.
         """
@@ -54,7 +56,7 @@ def worker(options, use_lxml):
             data = r_client.get(data_key)
             r_client.delete(data_key)
             base_url = data_key.replace(cns.DATA_KEY_PREFIX, '')
-            node_position = cns.NODE_KEY_PREFIX + base_url
+            child_nodes = []
             new_urls = []
             documents = []
             logger.info('Data is gotten')
@@ -79,11 +81,13 @@ def worker(options, use_lxml):
                 d = {}
                 descendants = list(d for d in subcategory.descendants if not isinstance(d, str))
                 if not descendants: continue
-                d['name'] = descendants[-1].get_text()
-                d['description'] = descendants[-3].get_text()
                 href = descendants[0].attrs['href']
                 d['url'] = urljoin(base_url, href)
-                documents.append(d)
+                d['name'] = descendants[-1].get_text()
+                d['description'] = descendants[-3].get_text()
+                # documents.append(d)
+                n = Node(position=d['url'], data=d, level=cns.NODE_SUBCATEGORY_LEVEL, parent=base_url)
+                child_nodes.append(n)
                 new_urls.append(d['url'])
 
             for topic in soup.select('tr.regular-topic'):
@@ -96,21 +100,29 @@ def worker(options, use_lxml):
                 d['views'] = topic.find(class_='view-cell').get_text()
                 d['created'] = topic.find('meta', itemprop='dateCreated')['content']
                 d['modified'] = topic.find('meta', itemprop='dateModified')['content']
-                documents.append(d)
+                # documents.append(d)
+                n = Node(position=d['url'], data=d, level=cns.NODE_TOPIC_LEVEL, parent=base_url)
+                child_nodes.append(n)
                 new_urls.append(d['url'])
 
             for post in soup.select('div.post-interior'):
-                d = {}
-                d['number'] = post.select('a.post-index')[0].get_text()
-                d['user'] = post.select('div.context-user > strong')[0].get_text()
-                d['created'] = post.select('meta[itemprop=dateCreated]')[0].attrs['content']
+                document = defaultdict(dict)
+                document['post']['number'] = post.select('a.post-index')[0].get_text()
+                document['post']['user'] = post.select('div.context-user > strong')[0].get_text()
+                document['post']['created'] = post.select('meta[itemprop=dateCreated]')[0].attrs['content']
                 tag = post.select('div.post-rating')
                 if tag:
-                    d['rating'] = tag[0].get_text()
-                d['text'] = post.select('div.post-content')[0].get_text()
-                documents.append(d)
+                    document['post']['rating'] = tag[0].get_text()
+                document['post']['text'] = post.select('div.post-content')[0].get_text()
+                for node in tree.get_parents(base_url):
+                    if node.level == cns.NODE_TOPIC_LEVEL:
+                        document['topic'] = node.data
+                    elif node.level == cns.NODE_SUBCATEGORY_LEVEL:
+                        document['subcategory'] = node.data
+                documents.append(document)
 
-            _put_urls(new_urls)
+            tree.add_nodes(child_nodes)
+            put_urls(new_urls)
             if not documents:
                 logger.warning('No documents for url {}'.format(base_url))
             else:
