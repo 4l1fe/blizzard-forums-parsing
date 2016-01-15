@@ -5,6 +5,7 @@ from urllib.parse import urljoin
 from redis import Redis
 from pymongo import MongoClient
 from bs4 import BeautifulSoup
+from utils import Node
 
 
 logger = logging.getLogger(__name__)
@@ -48,15 +49,18 @@ def worker(options, use_lxml):
         data_key = data_key[1].decode()
         if data_key == cns.FINISH_COMMAND:
             break
+
         try:
             data = r_client.get(data_key)
             r_client.delete(data_key)
             base_url = data_key.replace(cns.DATA_KEY_PREFIX, '')
+            node_position = cns.NODE_KEY_PREFIX + base_url
             new_urls = []
             documents = []
             logger.info('Data is gotten')
-            soup = BeautifulSoup(data.decode().replace('\n', ''), #todo убрать пробельные символы
-                                 'lxml' if use_lxml else 'html.parser')
+
+            # todo убрать пробельные символы
+            soup = BeautifulSoup(data.decode().replace('\n', ''), 'lxml' if use_lxml else 'html.parser')
             pagination = soup.select('ul.ui-pagination')
             if pagination:
                 pagination = pagination[0]
@@ -67,7 +71,7 @@ def worker(options, use_lxml):
                 while not max_page.isdigit():
                     last_child -= 1
                     max_page = pagination.contents[last_child].string
-                for i in range(2, int(max_page) + 1): # todo: сделать множественную вставку ссылок
+                for i in range(2, int(max_page) + 1):
                     url = base_url.split('?')[0] + '?' + query_param_name + '=' + str(i)
                     new_urls.append(url)
 

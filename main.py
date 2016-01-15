@@ -8,9 +8,11 @@ from multiprocessing import Process
 from redis import Redis
 from fetcher import fetcher
 from worker import worker
+from utils import Node
 
 
 logger = logging.getLogger('main')
+
 
 LOGGING = {
     'version': 1,
@@ -76,6 +78,8 @@ def main(options):
         p = Process(target=worker, name='Worker', args=(options, options.use_lxml))
         p.start()
         workers.append(p)
+
+    Node(position=cns.NODE_KEY_PREFIX+options.url, client=r).save()  # создание корневого узла иерархии данных
 
     logger.info('=================================Start parsing=================================')
     start_time = time.time()
