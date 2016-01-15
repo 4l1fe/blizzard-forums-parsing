@@ -35,21 +35,21 @@ def fetcher(options, fetcher_concurrent, use_curl):
                 if url == cns.FINISH_COMMAND:
                     logger.info('Concurrent {} is stoped'.format(i))
                     break
-                else:
-                    logger.debug('Got url {}'.format(url))
-                    client = AsyncHTTPClient()
-                    user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
-                    try:
-                        response = yield client.fetch(url, user_agent=user_agent)
-                        if response.body:
-                            key = cns.DATA_KEY_PREFIX + url
-                            pipeline = tr_client.pipeline()
-                            pipeline.lpush(cns.DATA_QUEUE_KEY, key)
-                            pipeline.set(key, response.body.decode())
-                            yield Task(pipeline.execute)
-                            logger.debug("Request time: {}. {}".format(response.request_time, url))
-                    except:
-                        logger.exception('Error with url {}'.format(url))
+
+                logger.debug('Got url {}'.format(url))
+                client = AsyncHTTPClient()
+                user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
+                try:
+                    response = yield client.fetch(url, user_agent=user_agent)
+                    if response.body:
+                        data_key = cns.DATA_KEY_PREFIX + url
+                        pipeline = tr_client.pipeline()
+                        pipeline.lpush(cns.DATA_QUEUE_KEY, data_key)
+                        pipeline.set(data_key, response.body.decode())
+                        yield Task(pipeline.execute)
+                        logger.debug("Request time: {}. {}".format(response.request_time, url))
+                except:
+                    logger.exception('Error with url {}'.format(url))
 
         logger.info('Start {} concurrent requests'.format(fetcher_concurrent))
         completed = yield [fetch(i) for i in range(1, fetcher_concurrent+1)]
