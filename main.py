@@ -53,7 +53,7 @@ LOGGING = {
 }
 
 
-def main(options):
+def main(options):  # todo чистка дерева в редисе
     """Родительский процесс инициализирует настройки логера, порождает заданное
     количество фетчеров и воркеров, ложит начальную ссылку для запроса
     фетчером(начала работы всей системы), далее по заданной паузе просматривает
@@ -94,7 +94,7 @@ def main(options):
     logger.info('Waiting for processes terminating')
     for p in chain(fetchers, workers):
         p.join()
-    r.delete(cns.PARSED_URLS_KEY)
+    r.flushdb()
     end_time = time.time()
     logger.info('End parsing. Duration: {}'.format(end_time-start_time))
 
