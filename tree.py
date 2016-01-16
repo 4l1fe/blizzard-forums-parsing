@@ -3,9 +3,6 @@ import pickle
 import constants as cns
 
 
-logger = logging.getLogger(__name__)
-
-
 class Tree:
 
     def __init__(self, redis_client):
