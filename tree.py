@@ -4,7 +4,7 @@ import constants as cns
 
 
 class Tree:
-
+    #todo переписать на lua и перенести в redis
     def __init__(self, redis_client):
         self.redis_client = redis_client
 

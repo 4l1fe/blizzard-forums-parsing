@@ -2,8 +2,20 @@ import fcntl
 import socket
 import struct
 import pymongo
+import redis
 import constants as cns
 from logging import Handler, NOTSET
+
+
+def get_parents(position):
+    """Для отладки сценария lua из консоли"""
+
+    r = redis.Redis()
+    with open('getparents.lua') as file:
+        s = file.read()
+    sha = r.script_load(s)
+    res = r.evalsha(sha, 1, position)
+    return res
 
 
 def get_lan_ip():

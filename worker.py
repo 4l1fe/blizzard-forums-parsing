@@ -45,6 +45,14 @@ def worker(options, use_lxml):
             pipeline.execute()
             logger.debug('Put new urls: {}'.format(urls))
 
+    def add_nodes(nodes):
+        pipeline = r_client.ppeline()  # todo вынести наверх
+        for n in nodes:
+            mapping = {'data': n.data, 'level': n.level, 'parent': n.parent}
+            pipeline.hmset(cns.NODE_KEY_PREFIX + n.position, maping)
+        pipeline.execute()
+        logger.debug('Put new nodes: {}'.format(nodes))
+
     while True:
         start_time = time.time()
         data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
