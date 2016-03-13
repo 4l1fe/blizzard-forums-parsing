@@ -1,9 +1,23 @@
 import unittest
+import logging
+from subprocess import Popen, PIPE
 import constants as cns
 from redis import Redis
 from tree import Tree, Node
 
+logger = logging.getLogger(__name__)
+redis_server = None
 
+
+def setUpModule():
+    global redis_server
+    redis_server = Popen(['redis-server', 'configs/redis.conf'], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    while True:
+        logger.info('Waiting for redis server')
+        if redis_server.stdout: break
+
+
+@unittest.skip('')
 class TreeTestCase(unittest.TestCase):
 
     @classmethod
@@ -56,3 +70,43 @@ class TreeTestCase(unittest.TestCase):
 
     def tearDown(self):
         self.redis_client.flushdb()
+
+
+class GetParentsTestCase(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        with open('getparents.lua') as file:
+            cls.lua_script = file.read()
+
+    def setUp(self):
+        self .redis = Redis()
+
+    def test_get_parents(self):
+        forum = dict(position='root', data=None, parent=None)
+        subcategory = dict(position='subcategory1', data=[1,2,3], parent=forum['position'])
+        topic = dict(position='topic1', data='SomeДата', parent=subcategory['position'])
+
+        pipeline = self.redis.pipeline()
+        pipeline.hmset(forum['position'], forum)
+        pipeline.hmset(subcategory['position'], subcategory)
+        pipeline.hmset(topic['position'], topic)
+        pipeline.execute()
+
+        nodes = self.redis.eval(self.lua_script, 1, topic['position'])
+        node1 = dict((nodes[0][i], nodes[0][i+1]) for i in range(0, len(nodes[0])-1, 2))
+        node2 = dict((nodes[1][i], nodes[1][i+1]) for i in range(0, len(nodes[1])-1, 2))
+        node3 = dict((nodes[2][i], nodes[2][i+1]) for i in range(0, len(nodes[2])-1, 2))
+        self.assertEqual(topic['position'], node1['position'])
+        self.assertEqual(topic['data'], node1['data'])
+        self.assertEqual(topic['parent'], node1['parent'])
+        self.assertEqual(subcategory['position'], node2['position'])
+        self.assertEqual(subcategory['data'], node2['data'])
+        self.assertEqual(subcategory['parent'], node2['parent'])
+        self.assertEqual(forum['position'], node3['position'])
+        self.assertEqual(forum['data'], node3['data'])
+        self.assertEqual(forum['parent'], node3['parent'])
+
+def tearDownModule():
+    global redis_server
+    redis_server.terminate()
