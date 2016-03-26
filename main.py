@@ -87,7 +87,7 @@ def main(options):  # todo чистка дерева в редисе
         time.sleep(options.check_period)
         uq_size = r.llen(cns.URL_QUEUE_KEY); dq_size = r.llen(cns.DATA_QUEUE_KEY)
         logger.debug('Url queue size: {}; Data queue size: {}'.format(uq_size, dq_size))
-        if not (uq_size or dq_size): #todo изменить на queue.join() ?
+        if not (uq_size or dq_size):
             r.lpush(cns.URL_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.fetcher_concurrent * options.fetcher_count)))
             r.lpush(cns.DATA_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.worker_count)))
             break
