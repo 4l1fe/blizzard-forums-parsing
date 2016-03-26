@@ -1,11 +1,11 @@
-MONGO_DB = 'hearthstone'
+MONGO_DB = 'blizzard'
 MONGO_COLLECTION = 'posts'
 MONGO_LOG_COLLECTION = 'logs'
 
 FINISH_COMMAND = 'finish'
 BLOCKING_TIMEOUT = 0
 
-NAMESPACE = 'hearthstone-parser:'
+NAMESPACE = 'forum-parser:'
 URL_QUEUE_KEY = NAMESPACE + 'urls'
 DATA_QUEUE_KEY = NAMESPACE + 'data-urls'
 NODE_QUEUE_KEY = NAMESPACE + 'data-nodes'
