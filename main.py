@@ -94,7 +94,7 @@ def main(options):  # todo чистка дерева в редисе
     logger.info('Waiting for processes terminating')
     for p in chain(fetchers, workers):
         p.join()
-    r.flushdb()
+    r.delete(*r.keys(cns.NAMESPACE + '*')) # чистка ключей только в пространстве имен парсера
     end_time = time.time()
     logger.info('End parsing. Duration: {}'.format(end_time-start_time))
 
