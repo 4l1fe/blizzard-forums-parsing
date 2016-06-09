@@ -1,3 +1,4 @@
+import os
 import logging
 import fake_useragent
 import tornado.ioloop
@@ -10,7 +11,7 @@ from tornado.gen import coroutine, Task
 logger = logging.getLogger(__name__)
 
 
-def fetcher(options, fetcher_concurrent, use_curl):
+def fetcher(parent_key, options, fetcher_concurrent, use_curl):
     """Фетчер берёт ссылки из редиса, созданные воркерами, и выполняет запросы
     к внешним ресурсам асинхронно, далее складывает их в редис на обработку воркерами.
 
@@ -21,6 +22,7 @@ def fetcher(options, fetcher_concurrent, use_curl):
 
     pool = tornadoredis.ConnectionPool(fetcher_concurrent, wait_for_available=True,
                                        host=options.redis_host, port=options.redis_port)
+    pid = os.getpid()
     logger.info('Fetcher is started. Redis connection {}:{}'.format(options.redis_host, options.redis_port))
 
     @coroutine
@@ -30,12 +32,16 @@ def fetcher(options, fetcher_concurrent, use_curl):
         def fetch(i):
             tr_client = tornadoredis.Client(connection_pool=pool)
             while True:
-                url = yield Task(tr_client.brpop, cns.URL_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
-                url = url[cns.URL_QUEUE_KEY]
-                if url == cns.FINISH_COMMAND:
+                finish = yield Task(tr_client.hget, parent_key, pid)
+                if finish:
                     logger.info('Concurrent {} is stoped'.format(i))
                     break
 
+                url = yield Task(tr_client.brpop, cns.URL_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+                url = url[cns.URL_QUEUE_KEY]  #TODO почему тут какой-то словарь?
+                # if l == cns.FINISH_COMMAND:
+                #     logger.info('Concurrent {} is stoped'.format(i))
+                #     break
                 logger.debug('Got url {}'.format(url))
                 client = AsyncHTTPClient()
                 user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
