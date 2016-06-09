@@ -1,5 +1,8 @@
 import logging
 import time
+import signal
+import sys
+import uuid
 import constants as cns
 from itertools import chain
 from logging.config import dictConfig
@@ -51,9 +54,18 @@ LOGGING = {
         },
     }
 }
+GRACEFUL_STOP = False
 
 
-def main(options):  # todo чистка дерева в редисе
+def graceful_stop(signum, frame):
+    global GRACEFUL_STOP
+    if GRACEFUL_STOP:
+        sys.exit("Exit manually")
+    logger.info('Graceful stopping...')
+    GRACEFUL_STOP = True
+
+
+def main(options):
     """Родительский процесс инициализирует настройки логера, порождает заданное
     количество фетчеров и воркеров, ложит начальную ссылку для запроса
     фетчером(начала работы всей системы), далее по заданной паузе просматривает
@@ -61,22 +73,28 @@ def main(options):  # todo чистка дерева в редисе
     если очереди пустые(интерпритация завершения работы системы).
     """
 
+    global GRACEFUL_STOP
     r = Redis(options.redis_host, options.redis_port)
-    logger.info('Main process is started. Args: {}'.format(options))
+    uidh = uuid.uuid4().hex
+    parent_key = cns.CLUSTER_NODE_PREFIX + uidh
+    logger.info('Cluster node {} process is started. Args: {}'.format(uidh, options))
 
     logger.info('Start {} fetchers'.format(options.fetcher_count))
     fetchers = []
     for i in range(options.fetcher_count):
-        p = Process(target=fetcher, name='Fetcher', args=(options, options.fetcher_concurrent, options.use_curl))
+        p = Process(target=fetcher, name='Fetcher', args=(parent_key, options, options.fetcher_concurrent, options.use_curl))
         p.start()
         fetchers.append(p)
 
     logger.info('Start {} workers'.format(options.worker_count))
     workers = []
     for i in range(options.worker_count):
-        p = Process(target=worker, name='Worker', args=(options, options.use_lxml))
+        p = Process(target=worker, name='Worker', args=(parent_key, options, options.use_lxml))
         p.start()
         workers.append(p)
+
+    finish_flags = {p.pid: 0 for p in chain(fetchers, workers)}
+    r.hmset(parent_key, finish_flags)
 
     Tree(r).add_root(options.url)
 
@@ -87,9 +105,11 @@ def main(options):  # todo чистка дерева в редисе
         time.sleep(options.check_period)
         uq_size = r.llen(cns.URL_QUEUE_KEY); dq_size = r.llen(cns.DATA_QUEUE_KEY)
         logger.debug('Url queue size: {}; Data queue size: {}'.format(uq_size, dq_size))
-        if not (uq_size or dq_size):
-            r.lpush(cns.URL_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.fetcher_concurrent * options.fetcher_count)))
-            r.lpush(cns.DATA_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.worker_count)))
+        if GRACEFUL_STOP or not (uq_size or dq_size):
+            finish_flags = {p.pid: 1 for p in chain(fetchers, workers)}
+            r.hmset(parent_key, finish_flags)
+            # r.lpush(cns.URL_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.fetcher_concurrent * options.fetcher_count)))
+            # r.lpush(cns.DATA_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.worker_count)))
             break
     logger.info('Waiting for processes terminating')
     for p in chain(fetchers, workers):
@@ -126,4 +146,7 @@ if __name__ == '__main__':
     LOGGING['handlers']['mongo']['host'] = options.mongo_host
     LOGGING['handlers']['mongo']['port'] = options.mongo_port
     dictConfig(LOGGING)
+
+    signal.signal(signal.SIGINT, graceful_stop)
+
     main(options)

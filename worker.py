@@ -1,5 +1,6 @@
 import logging
 import time
+import os
 import constants as cns
 from collections import defaultdict
 from urllib.parse import urljoin
@@ -12,7 +13,7 @@ from tree import Tree, Node
 logger = logging.getLogger(__name__)
 
 
-def worker(options, use_lxml):
+def worker(parent_key, options, use_lxml):
     """Воркер выполняет работу в по парсингу страниц и созданию новых ссылок.
 
     -Ищет ссылки, по которым можно получить новые данные и ставит их в очередь,
@@ -25,6 +26,7 @@ def worker(options, use_lxml):
     collection = db[cns.MONGO_COLLECTION]
     r_client = Redis(options.redis_host, options.redis_port)
     tree = Tree(r_client)
+    pid = os.getpid()
     logger.info('Started. Mongo connection {}:{}. Redis connection {}:{}'.format(options.mongo_host, options.mongo_port,
                                                                                 options.redis_host, options.redis_port))
 
@@ -47,11 +49,14 @@ def worker(options, use_lxml):
 
     while True:
         start_time = time.time()
-        data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
-        data_key = data_key[1].decode()
-        if data_key == cns.FINISH_COMMAND:
+        finish = r_client.hget(parent_key, pid)
+        if finish:
             break
 
+        data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+        data_key = data_key[1].decode() #TODO почему тут какой-то список?
+        # if data_key == cns.FINISH_COMMAND:
+        #     break
         try:
             data = r_client.get(data_key)
             r_client.delete(data_key)
