@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+import signal
 import constants as cns
 from collections import defaultdict
 from urllib.parse import urljoin
@@ -20,6 +21,9 @@ def worker(parent_key, options, use_lxml):
      которую читает фетчер.
     -Ищет данные по топикам, постам, темам форума и сохраняет их пачкой в БД.
     """
+
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     mc = MongoClient(options.mongo_host, options.mongo_port)
     db = mc[cns.MONGO_DB]
@@ -49,14 +53,12 @@ def worker(parent_key, options, use_lxml):
 
     while True:
         start_time = time.time()
-        finish = r_client.hget(parent_key, pid)
-        if finish:
+        exist = r_client.hexists(parent_key, pid)
+        if not exist:
             break
 
         data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
-        data_key = data_key[1].decode() #TODO почему тут какой-то список?
-        # if data_key == cns.FINISH_COMMAND:
-        #     break
+        data_key = data_key[1].decode()
         try:
             data = r_client.get(data_key)
             r_client.delete(data_key)
@@ -90,7 +92,6 @@ def worker(parent_key, options, use_lxml):
                 d['url'] = urljoin(base_url, href)
                 d['name'] = descendants[-1].get_text()
                 d['description'] = descendants[-3].get_text()
-                # documents.append(d)
                 n = Node(position=d['url'], data=d, level=cns.NODE_SUBCATEGORY_LEVEL, parent=base_url)
                 child_nodes.append(n)
                 new_urls.append(d['url'])
@@ -105,7 +106,6 @@ def worker(parent_key, options, use_lxml):
                 d['views'] = topic.find(class_='view-cell').get_text()
                 d['created'] = topic.find('meta', itemprop='dateCreated')['content']
                 d['modified'] = topic.find('meta', itemprop='dateModified')['content']
-                # documents.append(d)
                 n = Node(position=d['url'], data=d, level=cns.NODE_TOPIC_LEVEL, parent=base_url)
                 child_nodes.append(n)
                 new_urls.append(d['url'])

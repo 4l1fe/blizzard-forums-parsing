@@ -1,5 +1,6 @@
 import os
 import logging
+import signal
 import fake_useragent
 import tornado.ioloop
 import tornadoredis
@@ -16,9 +17,12 @@ def fetcher(parent_key, options, fetcher_concurrent, use_curl):
     к внешним ресурсам асинхронно, далее складывает их в редис на обработку воркерами.
 
     Логирование через обработчик MongoHandler блокирует основной поток IOLoop.
-    Сделано так из-за маленькой задержки на логирование, создание неблогирующего
+    Сделано так из-за маленькой задержки на логирование, создание неблокирующего
     логера несет лишние накладные расходы.
     """
+
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     pool = tornadoredis.ConnectionPool(fetcher_concurrent, wait_for_available=True,
                                        host=options.redis_host, port=options.redis_port)
@@ -32,16 +36,13 @@ def fetcher(parent_key, options, fetcher_concurrent, use_curl):
         def fetch(i):
             tr_client = tornadoredis.Client(connection_pool=pool)
             while True:
-                finish = yield Task(tr_client.hget, parent_key, pid)
-                if finish:
-                    logger.info('Concurrent {} is stoped'.format(i))
+                exist = yield Task(tr_client.hexists, parent_key, pid)
+                if not exist:
+                    logger.info('Coroutine {} is stoped'.format(i))
                     break
 
                 url = yield Task(tr_client.brpop, cns.URL_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
-                url = url[cns.URL_QUEUE_KEY]  #TODO почему тут какой-то словарь?
-                # if l == cns.FINISH_COMMAND:
-                #     logger.info('Concurrent {} is stoped'.format(i))
-                #     break
+                url = url[cns.URL_QUEUE_KEY]
                 logger.debug('Got url {}'.format(url))
                 client = AsyncHTTPClient()
                 user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы

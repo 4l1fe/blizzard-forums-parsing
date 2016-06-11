@@ -54,15 +54,6 @@ LOGGING = {
         },
     }
 }
-GRACEFUL_STOP = False
-
-
-def graceful_stop(signum, frame):
-    global GRACEFUL_STOP
-    if GRACEFUL_STOP:
-        sys.exit("Exit manually")
-    logger.info('Graceful stopping...')
-    GRACEFUL_STOP = True
 
 
 def main(options):
@@ -70,14 +61,23 @@ def main(options):
     количество фетчеров и воркеров, ложит начальную ссылку для запроса
     фетчером(начала работы всей системы), далее по заданной паузе просматривает
     содержимое очередей для ворекров\фетчеров и подаёт команду на мягкое завершение,
-    если очереди пустые(интерпритация завершения работы системы).
+    если очереди пустые(интерпритация завершения работы системы) или пришел сигнал на завершение.
     """
 
-    global GRACEFUL_STOP
     r = Redis(options.redis_host, options.redis_port)
     uidh = uuid.uuid4().hex
     parent_key = cns.CLUSTER_NODE_PREFIX + uidh
+    STOP = False
     logger.info('Cluster node {} process is started. Args: {}'.format(uidh, options))
+
+    def graceful_stop(signum, frame):
+        nonlocal STOP
+        if STOP:
+            sys.exit()
+        logger.info('Graceful stopping...')
+        STOP = True
+    signal.signal(signal.SIGINT, graceful_stop)
+    signal.signal(signal.SIGTERM, graceful_stop)
 
     logger.info('Start {} fetchers'.format(options.fetcher_count))
     fetchers = []
@@ -93,7 +93,7 @@ def main(options):
         p.start()
         workers.append(p)
 
-    finish_flags = {p.pid: 0 for p in chain(fetchers, workers)}
+    finish_flags = {p.pid: 1 for p in chain(fetchers, workers)}    #TODO замена на комуникацию через pipe
     r.hmset(parent_key, finish_flags)
 
     Tree(r).add_root(options.url)
@@ -105,11 +105,9 @@ def main(options):
         time.sleep(options.check_period)
         uq_size = r.llen(cns.URL_QUEUE_KEY); dq_size = r.llen(cns.DATA_QUEUE_KEY)
         logger.debug('Url queue size: {}; Data queue size: {}'.format(uq_size, dq_size))
-        if GRACEFUL_STOP or not (uq_size or dq_size):
+        if STOP or not (uq_size or dq_size):  #TODO при большом периоде проверки check_period придется ожидать
             finish_flags = {p.pid: 1 for p in chain(fetchers, workers)}
-            r.hmset(parent_key, finish_flags)
-            # r.lpush(cns.URL_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.fetcher_concurrent * options.fetcher_count)))
-            # r.lpush(cns.DATA_QUEUE_KEY, *(cns.FINISH_COMMAND for _ in range(options.worker_count)))
+            r.hdel(parent_key, *tuple(finish_flags))
             break
     logger.info('Waiting for processes terminating')
     for p in chain(fetchers, workers):
@@ -146,7 +144,5 @@ if __name__ == '__main__':
     LOGGING['handlers']['mongo']['host'] = options.mongo_host
     LOGGING['handlers']['mongo']['port'] = options.mongo_port
     dictConfig(LOGGING)
-
-    signal.signal(signal.SIGINT, graceful_stop)
 
     main(options)
