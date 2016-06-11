@@ -14,7 +14,7 @@ from tree import Tree, Node
 logger = logging.getLogger(__name__)
 
 
-def worker(parent_key, options, use_lxml):
+def worker(options, stop_flag, use_lxml=False):
     """Воркер выполняет работу в по парсингу страниц и созданию новых ссылок.
 
     -Ищет ссылки, по которым можно получить новые данные и ставит их в очередь,
@@ -53,8 +53,7 @@ def worker(parent_key, options, use_lxml):
 
     while True:
         start_time = time.time()
-        exist = r_client.hexists(parent_key, pid)
-        if not exist:
+        if stop_flag.value:
             break
 
         data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
