@@ -12,7 +12,7 @@ from tornado.gen import coroutine, Task
 logger = logging.getLogger(__name__)
 
 
-def fetcher(parent_key, options, fetcher_concurrent, use_curl):
+def fetcher(options, fetcher_concurrent, stop_flag, use_curl=False):
     """Фетчер берёт ссылки из редиса, созданные воркерами, и выполняет запросы
     к внешним ресурсам асинхронно, далее складывает их в редис на обработку воркерами.
 
@@ -36,8 +36,7 @@ def fetcher(parent_key, options, fetcher_concurrent, use_curl):
         def fetch(i):
             tr_client = tornadoredis.Client(connection_pool=pool)
             while True:
-                exist = yield Task(tr_client.hexists, parent_key, pid)
-                if not exist:
+                if stop_flag.value:
                     logger.info('Coroutine {} is stoped'.format(i))
                     break
 

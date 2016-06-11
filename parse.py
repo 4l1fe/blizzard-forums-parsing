@@ -7,7 +7,8 @@ import constants as cns
 from itertools import chain
 from logging.config import dictConfig
 from argparse import ArgumentParser
-from multiprocessing import Process
+from multiprocessing import Process, Value
+from ctypes import c_bool
 from redis import Redis
 from fetcher import fetcher
 from worker import worker
@@ -65,10 +66,8 @@ def main(options):
     """
 
     r = Redis(options.redis_host, options.redis_port)
-    uidh = uuid.uuid4().hex
-    parent_key = cns.CLUSTER_NODE_PREFIX + uidh
     STOP = False
-    logger.info('Cluster node {} process is started. Args: {}'.format(uidh, options))
+    logger.info('Cluster node process is started. Args: {}'.format(options))
 
     def graceful_stop(signum, frame):
         nonlocal STOP
@@ -82,19 +81,22 @@ def main(options):
     logger.info('Start {} fetchers'.format(options.fetcher_count))
     fetchers = []
     for i in range(options.fetcher_count):
-        p = Process(target=fetcher, name='Fetcher', args=(parent_key, options, options.fetcher_concurrent, options.use_curl))
+        stop_flag = Value(c_bool, False)
+        p = Process(target=fetcher, name='Fetcher',
+                    args=(options, options.fetcher_concurrent, stop_flag),
+                    kwargs={'use_curl': options.use_curl})
         p.start()
-        fetchers.append(p)
+        fetchers.append((p, stop_flag))
 
     logger.info('Start {} workers'.format(options.worker_count))
     workers = []
     for i in range(options.worker_count):
-        p = Process(target=worker, name='Worker', args=(parent_key, options, options.use_lxml))
+        stop_flag = Value(c_bool, False)
+        p = Process(target=worker, name='Worker',
+                    args=(options, stop_flag),
+                    kwargs={'use_lxml': options.use_lxml})
         p.start()
-        workers.append(p)
-
-    finish_flags = {p.pid: 1 for p in chain(fetchers, workers)}    #TODO замена на комуникацию через pipe
-    r.hmset(parent_key, finish_flags)
+        workers.append((p, stop_flag))
 
     Tree(r).add_root(options.url)
 
@@ -106,13 +108,15 @@ def main(options):
         uq_size = r.llen(cns.URL_QUEUE_KEY); dq_size = r.llen(cns.DATA_QUEUE_KEY)
         logger.debug('Url queue size: {}; Data queue size: {}'.format(uq_size, dq_size))
         if STOP or not (uq_size or dq_size):  #TODO при большом периоде проверки check_period придется ожидать
-            finish_flags = {p.pid: 1 for p in chain(fetchers, workers)}
-            r.hdel(parent_key, *tuple(finish_flags))
+            for p, stop_flag in chain(fetchers, workers):
+                stop_flag.value = True
             break
+
     logger.info('Waiting for processes terminating')
-    for p in chain(fetchers, workers):
+    for p, stop_flag in chain(fetchers, workers):
         p.join()
     r.delete(*r.keys(cns.NAMESPACE + '*')) # чистка ключей только в пространстве имен парсера
+
     end_time = time.time()
     logger.info('End parsing. Duration: {}'.format(end_time-start_time))
 
