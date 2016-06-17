@@ -51,20 +51,19 @@ def worker(options, stop_flag, use_lxml=False):
             pipeline.execute()
             logger.debug('Put new urls: {}'.format(urls))
 
-    while True:
+    documents = []
+    while not stop_flag.value:
         start_time = time.time()
-        if stop_flag.value:
-            break
-
-        data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
-        data_key = data_key[1].decode()
+        child_nodes = []
+        new_urls = []
         try:
-            data = r_client.get(data_key)
-            r_client.delete(data_key)
+            data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+            data_key = data_key[1].decode()
+            with r_client.pipeline() as pipeline:
+                pipeline.get(data_key)  #TODO pipeline
+                pipeline.delete(data_key)
+                data, del_count = pipeline.execute()
             base_url = data_key.replace(cns.DATA_KEY_PREFIX, '')
-            child_nodes = []
-            new_urls = []
-            documents = []
             logger.info('Data is gotten')
 
             # todo убрать пробельные символы
@@ -129,12 +128,19 @@ def worker(options, stop_flag, use_lxml=False):
             put_urls(new_urls)
             if not documents:
                 logger.warning('No documents for url {}'.format(base_url))
-            else:
+            elif len(documents) >= cns.INSERT_BATCH_SIZE:
                 collection.insert_many(documents)
-
+                documents.clear()
+                logger.info('Data is written')
             end_time = time.time()
-            logger.debug('Data is written. Duration: {}'.format(end_time-start_time))
+            logger.debug('Job duration: {}'.format(end_time-start_time))
         except:
-            logger.exception('Parsing error for key {}'.format(data_key))
+            logger.exception('Work error')
 
-    logger.info('Stoped')
+    if documents:
+        try:
+            collection.insert_many(documents)
+        except:
+            logger.exception('Final insertion error')
+
+    logger.info('Stopped')
