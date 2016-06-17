@@ -1,7 +1,7 @@
 import logging
 import time
 import signal
-import sys
+import os, sys
 import uuid
 import constants as cns
 from itertools import chain
@@ -44,7 +44,7 @@ LOGGING = {
     },
     'loggers': {
         '': {
-            'handlers': ['stream', 'mongo'],
+            'handlers': ['stream'],
             'level': 'DEBUG',
             'propagate': True
         },
@@ -72,9 +72,12 @@ def main(options):
     def graceful_stop(signum, frame):
         nonlocal STOP
         if STOP:
-            sys.exit()
+            # signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            # os.killpg(signal.SIGTERM)
+            sys.exit(0)
         logger.info('Graceful stopping...')
         STOP = True
+
     signal.signal(signal.SIGINT, graceful_stop)
     signal.signal(signal.SIGTERM, graceful_stop)
 
@@ -112,9 +115,9 @@ def main(options):
                 stop_flag.value = True
             break
 
-    logger.info('Waiting for processes terminating')
+    logger.info('Waiting for a processes terminating')
     for p, stop_flag in chain(fetchers, workers):
-        p.join()
+        p.join(3)
     r.delete(*r.keys(cns.NAMESPACE + '*')) # чистка ключей только в пространстве имен парсера
 
     end_time = time.time()

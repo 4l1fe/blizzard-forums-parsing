@@ -35,17 +35,13 @@ def fetcher(options, fetcher_concurrent, stop_flag, use_curl=False):
         @coroutine
         def fetch(i):
             tr_client = tornadoredis.Client(connection_pool=pool)
-            while True:
-                if stop_flag.value:
-                    logger.info('Coroutine {} is stoped'.format(i))
-                    break
-
-                url = yield Task(tr_client.brpop, cns.URL_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
-                url = url[cns.URL_QUEUE_KEY]
-                logger.debug('Got url {}'.format(url))
-                client = AsyncHTTPClient()
-                user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
+            while not stop_flag.value:
                 try:
+                    url = yield Task(tr_client.brpop, cns.URL_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+                    url = url[cns.URL_QUEUE_KEY]
+                    logger.debug('Coroutine {} got url {}'.format(i, url))
+                    client = AsyncHTTPClient()
+                    user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
                     response = yield client.fetch(url, user_agent=user_agent)
                     if response.body:
                         data_key = cns.DATA_KEY_PREFIX + url
@@ -53,9 +49,10 @@ def fetcher(options, fetcher_concurrent, stop_flag, use_curl=False):
                         pipeline.lpush(cns.DATA_QUEUE_KEY, data_key)
                         pipeline.set(data_key, response.body.decode())
                         yield Task(pipeline.execute)
-                        logger.debug("Request time: {}. {}".format(response.request_time, url))
+                        logger.debug("Coroutine {} request time: {}. {}".format(i, response.request_time, url))
                 except:
-                    logger.exception('Error with url {}'.format(url))
+                    logger.exception('Coroutine {} error with url {}'.format(i, url))
+            logger.info('Coroutine {} is stopped'.format(i))
 
         logger.info('Start {} concurrent requests'.format(fetcher_concurrent))
         completed = yield [fetch(i) for i in range(1, fetcher_concurrent+1)]
@@ -63,4 +60,4 @@ def fetcher(options, fetcher_concurrent, stop_flag, use_curl=False):
     if use_curl:
         AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # использует keep-alive
     tornado.ioloop.IOLoop.current().run_sync(main)
-    logger.info('Stoped. IOloop shutdown.')
+    logger.info('Stopped. IOloop shutdown.')
