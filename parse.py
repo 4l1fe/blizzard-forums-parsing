@@ -118,7 +118,8 @@ def main(options):
     logger.info('Waiting for a processes terminating')
     for p, stop_flag in chain(fetchers, workers):
         p.join(3)
-    r.delete(*r.keys(cns.NAMESPACE + '*')) # чистка ключей только в пространстве имен парсера
+    if not STOP:
+        r.delete(*r.keys(cns.NAMESPACE + '*')) # чистка ключей только в пространстве имен парсера
 
     end_time = time.time()
     logger.info('End parsing. Duration: {}'.format(end_time-start_time))
