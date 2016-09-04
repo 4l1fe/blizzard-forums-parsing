@@ -24,7 +24,7 @@ LOGGING = {
         'custom': {
             'style': '{',
             'datefmt': '%H:%M:%S',
-            'format': '[{asctime}.{msecs:.3g} {name}({process}) {levelname}] {message}'
+            'format': '[{name}({process}) {asctime}.{msecs:.3g} {levelname}] {message}'
         },
     },
     'handlers': {
@@ -35,7 +35,7 @@ LOGGING = {
             'formatter': 'custom',
         },
         'mongo': {
-            'level': 'DEBUG',
+            'level': 'ERROR',
             'class': 'utils.MongoHandler',
             'host': 'localhost',
             'port': 27017,
@@ -44,7 +44,7 @@ LOGGING = {
     },
     'loggers': {
         '': {
-            'handlers': ['stream'],
+            'handlers': ['stream', 'mongo'],
             'level': 'DEBUG',
             'propagate': True
         },

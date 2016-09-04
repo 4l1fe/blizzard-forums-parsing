@@ -66,8 +66,7 @@ def worker(options, stop_flag, use_lxml=False):
             base_url = data_key.replace(cns.DATA_KEY_PREFIX, '')
             logger.info('Data is gotten')
 
-            # todo убрать пробельные символы
-            soup = BeautifulSoup(data.decode().replace('\n', ''), 'lxml' if use_lxml else 'html.parser')
+            soup = BeautifulSoup(data.decode(), 'lxml' if use_lxml else 'html.parser')
             pagination = soup.select('ul.ui-pagination')
             if pagination:
                 pagination = pagination[0]
