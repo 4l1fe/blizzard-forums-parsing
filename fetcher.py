@@ -42,7 +42,9 @@ def fetcher(options, fetcher_concurrent, stop_flag, use_curl=False):
                     logger.debug('Coroutine {} got url {}'.format(i, url))
                     client = AsyncHTTPClient()
                     user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
-                    response = yield client.fetch(url, user_agent=user_agent)
+                    response = yield client.fetch(url, user_agent=user_agent,
+                                                  request_timeout=cns.REQUEST_TIMEOUT,
+                                                  connect_timeout=cns.CONNECT_TIMEOUT)
                     if response.body:
                         data_key = cns.DATA_KEY_PREFIX + url
                         pipeline = tr_client.pipeline(transactional=True)
