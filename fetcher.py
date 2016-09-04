@@ -45,7 +45,7 @@ def fetcher(options, fetcher_concurrent, stop_flag, use_curl=False):
                     response = yield client.fetch(url, user_agent=user_agent)
                     if response.body:
                         data_key = cns.DATA_KEY_PREFIX + url
-                        pipeline = tr_client.pipeline()
+                        pipeline = tr_client.pipeline(transactional=True)
                         pipeline.lpush(cns.DATA_QUEUE_KEY, data_key)
                         pipeline.set(data_key, response.body.decode())
                         yield Task(pipeline.execute)
