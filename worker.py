@@ -58,6 +58,9 @@ def worker(options, stop_flag, use_lxml=False):
         new_urls = []
         try:
             data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+            if not data_key:
+                logger.info('Continue after an expired blocking')
+                continue
             data_key = data_key[1].decode()
             with r_client.pipeline() as pipeline:
                 pipeline.get(data_key)  #TODO pipeline
