@@ -9,10 +9,10 @@ WORKDIR  $PROJ_DIR
 RUN apt-get update \
     && apt-get install -y python3-dev \
         python3-pip \
-        libcurl4-gnutls-dev \
+        libcurl4-openssl-dev \
         libxml2-dev \
         libxslt-dev \
-    && export PYCURL_SSL_LIBRARY=gnutls \
+    && export PYCURL_SSL_LIBRARY=openssl \
     && pip3 install -r requirements.txt \
     && locale-gen en_US en_US.UTF-8 \
     && update-locale \
