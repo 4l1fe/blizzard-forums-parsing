@@ -88,25 +88,29 @@ def worker(options, stop_flag, use_lxml=False):
             for topic in soup.find_all(class_='ForumTopic'):
                 d = {}
                 d['url'] = urljoin(base_url, topic['href'])
-                d['name'] = topic.find(class_='ForumTopc-heading').get_text()
+                d['name'] = topic.find(class_='ForumTopic-heading').get_text()
                 d['author'] = topic.find(class_='ForumTopic-author').get_text()
                 d['replies'] = topic.find(class_='ForumTopic-replies').get_text()
                 n = Node(position=d['url'], data=d, level=cns.NODE_TOPIC_LEVEL, parent=base_url)
                 child_nodes.append(n)
                 new_urls.append(d['url'])
 
-            pagination = soup.find(class_='Topic-pagination--header').find_all(class_='Pagination-button--ordinal')
+            pagination = soup.select('.Topic-pagination--header .Pagination-button--ordinal')
             if pagination:
                 last_page = int(pagination[-1]['data-page-number'])
-                urls = [base_url+'?page='+str(n) for n in range(1, last_page+1)]
-                new_urls.append(urls)
+                urls = [urljoin(base_url, '?page='+str(n)) for n in range(1, last_page+1)]
+                new_urls.extend(urls)
 
             for subcategory in soup.find_all(class_='ForumCard'):
                 href = subcategory['href']
                 d = {}
                 d['url'] = urljoin(base_url, href)
-                d['name'] = subcategory.find(class_='ForumCard-heading').get_text()
-                d['description'] = subcategory.find(class_='ForumCard-description').get_text()
+                name = subcategory.find(class_='ForumCard-heading')
+                if name:
+                    d['name'] = name.get_text()
+                description = subcategory.find(class_='ForumCard-description')
+                if description:
+                    d['description'] = description.get_text()
                 n = Node(position=d['url'], data=d, level=cns.NODE_SUBCATEGORY_LEVEL, parent=base_url)
                 child_nodes.append(n)
                 new_urls.append(d['url'])
