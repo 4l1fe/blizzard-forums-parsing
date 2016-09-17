@@ -2,7 +2,6 @@ import logging
 import time
 import signal
 import os, sys
-import uuid
 import constants as cns
 from itertools import chain
 from logging.config import dictConfig
