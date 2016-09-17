@@ -55,7 +55,7 @@ class MongoHandler(Handler):
                 if field == 'ip':
                     document[field] = self.ip
                 elif field == 'message':
-                    document[field] = record.getMessage()
+                    document[field] = self.format(record)
                 else:
                     document[field] = getattr(record, field)
 
