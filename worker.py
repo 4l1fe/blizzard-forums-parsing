@@ -63,62 +63,21 @@ def worker(options, stop_flag, use_lxml=False):
                 continue
             data_key = data_key[1].decode()
             with r_client.pipeline() as pipeline:
-                pipeline.get(data_key)  #TODO pipeline
+                pipeline.get(data_key)
                 pipeline.delete(data_key)
                 data, del_count = pipeline.execute()
             base_url = data_key.replace(cns.DATA_KEY_PREFIX, '')
             logger.info('Data is gotten')
 
             soup = BeautifulSoup(data.decode(), 'lxml' if use_lxml else 'html.parser')
-            pagination = soup.select('ul.ui-pagination')
-            if pagination:
-                pagination = pagination[0]
-                tag = pagination.find('a')
-                query_param_name = tag.attrs['href'].split('=')[0][1:]
-                last_child = -1
-                max_page = pagination.contents[last_child].string
-                while not max_page.isdigit():
-                    last_child -= 1
-                    max_page = pagination.contents[last_child].string
-                for i in range(2, int(max_page) + 1):
-                    url = base_url.split('?')[0] + '?' + query_param_name + '=' + str(i)
-                    new_urls.append(url)
 
-            for subcategory in soup.select('li.child-forum'):
-                d = {}
-                descendants = list(d for d in subcategory.descendants if not isinstance(d, str))
-                if not descendants: continue
-                href = descendants[0].attrs['href']
-                d['url'] = urljoin(base_url, href)
-                d['name'] = descendants[-1].get_text()
-                d['description'] = descendants[-3].get_text()
-                n = Node(position=d['url'], data=d, level=cns.NODE_SUBCATEGORY_LEVEL, parent=base_url)
-                child_nodes.append(n)
-                new_urls.append(d['url'])
-
-            for topic in soup.select('tr.regular-topic'):
-                d = {}
-                a_tag = topic.find(class_='topic-title')
-                d['url'] = urljoin(base_url, a_tag['href'])
-                d['name'] = a_tag.get_text()
-                d['author'] = topic.find(class_='author-cell').get_text()
-                d['replies'] = topic.find(class_='reply-cell').get_text()
-                d['views'] = topic.find(class_='view-cell').get_text()
-                d['created'] = topic.find('meta', itemprop='dateCreated')['content']
-                d['modified'] = topic.find('meta', itemprop='dateModified')['content']
-                n = Node(position=d['url'], data=d, level=cns.NODE_TOPIC_LEVEL, parent=base_url)
-                child_nodes.append(n)
-                new_urls.append(d['url'])
-
-            for post in soup.select('div.post-interior'):
+            for post in soup.find_all(class_='TopicPost'):
                 document = defaultdict(dict)
-                document['post']['number'] = post.select('a.post-index')[0].get_text()
-                document['post']['user'] = post.select('div.context-user > strong')[0].get_text()
-                document['post']['created'] = post.select('meta[itemprop=dateCreated]')[0].attrs['content']
-                tag = post.select('div.post-rating')
-                if tag:
-                    document['post']['rating'] = tag[0].get_text()
-                document['post']['text'] = post.select('div.post-content')[0].get_text()
+                document['post']['id'] = post['id']
+                document['post']['user'] = post.find(class_='Author-name').get_text()
+                document['post']['created'] = post.find(class_='TopicPost-timestamp')['data-tooltip-content']
+                document['post']['rank'] = post.find(class_='TopicPost-rank').get_text()
+                document['post']['text'] = post.find(class_='TopicPost-bodyContent').get_text()
                 for node in tree.get_parents(base_url):
                     if node.level == cns.NODE_TOPIC_LEVEL:
                         document['topic'] = node.data
@@ -126,14 +85,46 @@ def worker(options, stop_flag, use_lxml=False):
                         document['subcategory'] = node.data
                 documents.append(document)
 
+            for topic in soup.find_all(class_='ForumTopic'):
+                d = {}
+                d['url'] = urljoin(base_url, topic['href'])
+                d['name'] = topic.find(class_='ForumTopic-heading').get_text()
+                d['author'] = topic.find(class_='ForumTopic-author').get_text()
+                d['replies'] = topic.find(class_='ForumTopic-replies').get_text()
+                n = Node(position=d['url'], data=d, level=cns.NODE_TOPIC_LEVEL, parent=base_url)
+                child_nodes.append(n)
+                new_urls.append(d['url'])
+
+            pagination = soup.select('.Topic-pagination--header .Pagination-button--ordinal')
+            if pagination:
+                last_page = int(pagination[-1]['data-page-number'])
+                urls = [urljoin(base_url, '?page='+str(n)) for n in range(1, last_page+1)]
+                new_urls.extend(urls)
+
+            for subcategory in soup.find_all(class_='ForumCard'):
+                href = subcategory['href']
+                d = {}
+                d['url'] = urljoin(base_url, href)
+                name = subcategory.find(class_='ForumCard-heading')
+                if name:
+                    d['name'] = name.get_text()
+                description = subcategory.find(class_='ForumCard-description')
+                if description:
+                    d['description'] = description.get_text()
+                n = Node(position=d['url'], data=d, level=cns.NODE_SUBCATEGORY_LEVEL, parent=base_url)
+                child_nodes.append(n)
+                new_urls.append(d['url'])
+
             tree.add_nodes(child_nodes)
             put_urls(new_urls)
+
             if not documents:
                 logger.warning('No documents for url {}'.format(base_url))
             elif len(documents) >= cns.INSERT_BATCH_SIZE:
                 collection.insert_many(documents)
                 documents.clear()
                 logger.info('Data is written')
+
             end_time = time.time()
             logger.debug('Job duration: {}'.format(end_time-start_time))
         except:
