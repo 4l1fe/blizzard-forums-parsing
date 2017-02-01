@@ -10,7 +10,7 @@ from multiprocessing import Process, Value
 from ctypes import c_bool
 from redis import Redis
 from fetcher import fetcher
-from worker import worker
+from worker import Worker
 from tree import Tree
 
 logger = logging.getLogger('main')
@@ -94,11 +94,9 @@ def main(options):
     workers = []
     for i in range(options.worker_count):
         stop_flag = Value(c_bool, False)
-        p = Process(target=worker, name='Worker',
-                    args=(options, stop_flag),
-                    kwargs={'use_lxml': options.use_lxml})
-        p.start()
-        workers.append((p, stop_flag))
+        w = Worker(options)
+        w.start()
+        workers.append((w, stop_flag))  # remove stop_flag, use from w
 
     Tree(r).add_root(options.url)
 
