@@ -1,6 +1,5 @@
 import logging
 import time
-import os
 import signal
 import constants as cns
 from collections import defaultdict
@@ -9,37 +8,139 @@ from redis import Redis
 from pymongo import MongoClient
 from bs4 import BeautifulSoup
 from tree import Tree, Node
+from multiprocessing import Process
 
 
 logger = logging.getLogger(__name__)
 
 
-def worker(options, stop_flag, use_lxml=False):
-    """Воркер выполняет работу в по парсингу страниц и созданию новых ссылок.
+class Worker(Process):
 
-    -Ищет ссылки, по которым можно получить новые данные и ставит их в очередь,
-     которую читает фетчер.
-    -Ищет данные по топикам, постам, темам форума и сохраняет их пачкой в БД.
-    """
+    YET_NO_DATA = (None, None)
 
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    def __init__(self, options, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-    mc = MongoClient(options.mongo_host, options.mongo_port)
-    db = mc[cns.MONGO_DB]
-    collection = db[cns.MONGO_COLLECTION]
-    r_client = Redis(options.redis_host, options.redis_port)
-    tree = Tree(r_client)
-    pid = os.getpid()
-    logger.info('Started. Mongo connection {}:{}. Redis connection {}:{}'.format(options.mongo_host, options.mongo_port,
-                                                                                options.redis_host, options.redis_port))
+        self.stop_flag = options.stop_flag
+        self.use_lxml = options.use_lxml
 
-    def put_urls(urls):
+        self.mc = MongoClient(options.mongo_host, options.mongo_port)
+        db = self.mc[cns.MONGO_DB]
+        self.collection = db[cns.MONGO_COLLECTION]
+
+        self.rc = Redis(options.redis_host, options.redis_port)
+        self.tree = Tree(self.rc)
+
+        logger.info('Mongo connection {}:{}. Redis connection {}:{}'\
+                    .format(options.mongo_host, options.mongo_port, options.redis_host, options.redis_port))
+
+    def run(self):
+        logger.info('Started')
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+        self.documents = []  # to collect during a whole lifecircle for a batching
+        while not self.stop_flag.value:
+            try:
+                start_time = time.time()
+
+                data, base_url = self.get_data_and_base_url()
+                if (data, base_url) == self.YET_NO_DATA:
+                    logger.info('Continue after waiting data getting. Blocking is expired')
+                    continue
+                soup = BeautifulSoup(data.decode(), 'lxml' if self.use_lxml else 'html.parser')
+                self.parse_posts_fill_documents(soup, base_url)
+                self.parse_topics(soup, base_url)
+                self.parse_cards(soup, base_url)
+                self.save_documents(base_url)
+
+                end_time = time.time()
+                logger.debug('Job duration: {}'.format(end_time-start_time))
+            except:
+                logger.exception('Work error')
+
+        self.save_documents(finish=True)
+
+        logger.info('Stopped')
+
+    def get_data_and_base_url(self):
+        queuekey_datakey = self.rc.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
+        if not queuekey_datakey:
+            return self.YET_NO_DATA
+
+        data_key = queuekey_datakey[1].decode()
+        with self.rc.pipeline() as pipeline:
+            pipeline.get(data_key)
+            pipeline.delete(data_key)
+            data, del_count = pipeline.execute()
+        base_url = self._extract_base_url(data_key)
+        logger.info('Data is gotten')
+        return data, base_url
+
+    def parse_cards(self, soup, base_url):
+        child_nodes = []
+        new_urls = []
+        for card_source in soup.find_all(class_='ForumCard'):
+            href = card_source['href']
+            card = {}
+            card['url'] = urljoin(base_url, href)
+            name = card_source.find(class_='ForumCard-heading')
+            if name:
+                card['name'] = name.get_text()
+            description = card_source.find(class_='ForumCard-description')
+            if description:
+                card['description'] = description.get_text()
+
+            n = Node(position=card['url'], data=card, level=cns.NODE_SUBCATEGORY_LEVEL, parent=base_url)
+            child_nodes.append(n)
+            new_urls.append(card['url'])
+
+        self.add_child_nodes(child_nodes)
+        self.add_new_urls(new_urls)
+
+    def parse_topics(self, soup, base_url):
+        self._add_paginated_links(soup, base_url)
+
+        child_nodes = []
+        new_urls = []
+        for topic_source in soup.find_all(class_='ForumTopic'):
+            topic = {}
+            topic['url'] = urljoin(base_url, topic_source['href'])
+            topic['name'] = topic_source.find(class_='ForumTopic-heading').get_text()
+            topic['author'] = topic_source.find(class_='ForumTopic-author').get_text()
+            topic['replies'] = topic_source.find(class_='ForumTopic-replies').get_text()
+
+            n = Node(position=topic['url'], data=topic, level=cns.NODE_TOPIC_LEVEL, parent=base_url)
+            child_nodes.append(n)
+            new_urls.append(topic['url'])
+
+        self.add_child_nodes(child_nodes)
+        self.add_new_urls(new_urls)
+
+    def parse_posts_fill_documents(self, soup, base_url):
+        for post_source in soup.find_all(class_='TopicPost'):
+            document = defaultdict(dict)
+            document['post']['id'] = post_source['id']
+            document['post']['user'] = post_source.find(class_='Author-name').get_text()
+            document['post']['created'] = post_source.find(class_='TopicPost-timestamp')['data-tooltip-content']
+            document['post']['rank'] = post_source.find(class_='TopicPost-rank').get_text()
+            document['post']['text'] = post_source.find(class_='TopicPost-bodyContent').get_text()
+            for node in self.tree.get_parents(base_url):
+                if node.level == cns.NODE_TOPIC_LEVEL:
+                    document['topic'] = node.data
+                elif node.level == cns.NODE_SUBCATEGORY_LEVEL:
+                    document['subcategory'] = node.data
+            self.documents.append(document)
+
+    def add_child_nodes(self, nodes):
+        self.tree.add_nodes(nodes)
+
+    def add_new_urls(self, urls):
         """Вставка ссылок в очередь пачкой. Ссылки сохраняются
         в множество запрошенных, а в очередь только в него не входящие.
         """
 
-        pipeline = r_client.pipeline()
+        pipeline = self.rc.pipeline()
         for url in urls:
             pipeline.sismember(cns.PARSED_URLS_KEY, url)
         members = pipeline.execute()
@@ -50,90 +151,27 @@ def worker(options, stop_flag, use_lxml=False):
             pipeline.lpush(cns.URL_QUEUE_KEY, *urls)
             pipeline.execute()
             logger.debug('Put new urls: {}'.format(urls))
+        pipeline.reset()
 
-    documents = []
-    while not stop_flag.value:
-        start_time = time.time()
-        child_nodes = []
+    def save_documents(self, base_url=None, finish=False, batch_size=cns.INSERT_BATCH_SIZE):
+        if len(self.documents) >= batch_size:
+            self.collection.insert_many(self.documents)
+            self.documents.clear()
+            logger.info('Data is written')
+        elif finish and self.documents:
+            self.collection.insert_many(self.documents)
+            logger.info('Finished step. Data is written')
+        elif not self.documents:
+            logger.warning('No documents for url {}'.format(base_url))
+
+    def _extract_base_url(self, key):
+        return key.replace(cns.DATA_KEY_PREFIX, '')
+
+    def _add_paginated_links(self, soup, base_url):
         new_urls = []
-        try:
-            data_key = r_client.brpop(cns.DATA_QUEUE_KEY, cns.BLOCKING_TIMEOUT)
-            if not data_key:
-                logger.info('Continue after an expired blocking')
-                continue
-            data_key = data_key[1].decode()
-            with r_client.pipeline() as pipeline:
-                pipeline.get(data_key)
-                pipeline.delete(data_key)
-                data, del_count = pipeline.execute()
-            base_url = data_key.replace(cns.DATA_KEY_PREFIX, '')
-            logger.info('Data is gotten')
-
-            soup = BeautifulSoup(data.decode(), 'lxml' if use_lxml else 'html.parser')
-
-            for post in soup.find_all(class_='TopicPost'):
-                document = defaultdict(dict)
-                document['post']['id'] = post['id']
-                document['post']['user'] = post.find(class_='Author-name').get_text()
-                document['post']['created'] = post.find(class_='TopicPost-timestamp')['data-tooltip-content']
-                document['post']['rank'] = post.find(class_='TopicPost-rank').get_text()
-                document['post']['text'] = post.find(class_='TopicPost-bodyContent').get_text()
-                for node in tree.get_parents(base_url):
-                    if node.level == cns.NODE_TOPIC_LEVEL:
-                        document['topic'] = node.data
-                    elif node.level == cns.NODE_SUBCATEGORY_LEVEL:
-                        document['subcategory'] = node.data
-                documents.append(document)
-
-            for topic in soup.find_all(class_='ForumTopic'):
-                d = {}
-                d['url'] = urljoin(base_url, topic['href'])
-                d['name'] = topic.find(class_='ForumTopic-heading').get_text()
-                d['author'] = topic.find(class_='ForumTopic-author').get_text()
-                d['replies'] = topic.find(class_='ForumTopic-replies').get_text()
-                n = Node(position=d['url'], data=d, level=cns.NODE_TOPIC_LEVEL, parent=base_url)
-                child_nodes.append(n)
-                new_urls.append(d['url'])
-
-            pagination = soup.select('.Topic-pagination--header .Pagination-button--ordinal')
-            if pagination:
-                last_page = int(pagination[-1]['data-page-number'])
-                urls = [urljoin(base_url, '?page='+str(n)) for n in range(1, last_page+1)]
-                new_urls.extend(urls)
-
-            for subcategory in soup.find_all(class_='ForumCard'):
-                href = subcategory['href']
-                d = {}
-                d['url'] = urljoin(base_url, href)
-                name = subcategory.find(class_='ForumCard-heading')
-                if name:
-                    d['name'] = name.get_text()
-                description = subcategory.find(class_='ForumCard-description')
-                if description:
-                    d['description'] = description.get_text()
-                n = Node(position=d['url'], data=d, level=cns.NODE_SUBCATEGORY_LEVEL, parent=base_url)
-                child_nodes.append(n)
-                new_urls.append(d['url'])
-
-            tree.add_nodes(child_nodes)
-            put_urls(new_urls)
-
-            if not documents:
-                logger.warning('No documents for url {}'.format(base_url))
-            elif len(documents) >= cns.INSERT_BATCH_SIZE:
-                collection.insert_many(documents)
-                documents.clear()
-                logger.info('Data is written')
-
-            end_time = time.time()
-            logger.debug('Job duration: {}'.format(end_time-start_time))
-        except:
-            logger.exception('Work error')
-
-    if documents:
-        try:
-            collection.insert_many(documents)
-        except:
-            logger.exception('Final insertion error')
-
-    logger.info('Stopped')
+        pagination = soup.select('.Topic-pagination--header .Pagination-button--ordinal')
+        if pagination:
+            last_page = int(pagination[-1]['data-page-number'])
+            urls = [urljoin(base_url, '?page='+str(n)) for n in range(1, last_page+1)]
+            new_urls.extend(urls)
+        self.add_new_urls(new_urls)
