@@ -1,7 +1,6 @@
 import os
 import logging
 import signal
-import fake_useragent
 import tornado.ioloop
 import tornadoredis
 import constants as cns
@@ -38,8 +37,7 @@ def fetcher(options, fetcher_concurrent, stop_flag, use_curl=False):
                 url = url[cns.URL_QUEUE_KEY]
                 logger.debug('Coroutine {} got url {}'.format(i, url))
                 client = AsyncHTTPClient()
-                user_agent = fake_useragent.UserAgent(cache=True).random # кэш во временной папке системы
-                response = yield client.fetch(url, user_agent=user_agent)
+                response = yield client.fetch(url)
                 if response.body:
                     data_key = cns.DATA_KEY_PREFIX + url
                     pipeline = tr_client.pipeline(transactional=True)

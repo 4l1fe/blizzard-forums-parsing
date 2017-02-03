@@ -94,7 +94,7 @@ def main(options):
     workers = []
     for i in range(options.worker_count):
         stop_flag = Value(c_bool, False)
-        w = Worker(options)
+        w = Worker(options, stop_flag)
         w.start()
         workers.append((w, stop_flag))  # remove stop_flag, use from w
 
@@ -114,7 +114,7 @@ def main(options):
 
     logger.info('Waiting for a processes terminating')
     for p, stop_flag in chain(fetchers, workers):
-        p.join(3)
+        p.join(cns.TERMINATING_TIMEOUT)
     if not STOP:
         r.delete(*r.keys(cns.NAMESPACE + '*')) # чистка ключей только в пространстве имен парсера
 
@@ -123,9 +123,9 @@ def main(options):
 
 
 if __name__ == '__main__':
-    # http://eu.battle.net/hearthstone/ru/forum/
+    # https://us.battle.net/forums/en/heroes/
     parser = ArgumentParser()
-    parser.add_argument('url', metavar='<url>')
+    parser.add_argument('url', metavar='<forum url>')
     parser.add_argument('--fetcher-count', type=int, default=1, metavar='<count>',
                         help='default: %(default)s')
     parser.add_argument('--fetcher-concurrent', type=int, default=6, metavar='<count>',
@@ -134,11 +134,11 @@ if __name__ == '__main__':
                         help='default: %(default)s')
     parser.add_argument('--check-period', type=float, default=3.0, metavar='<seconds>',
                         help="default: %(default)s")
-    parser.add_argument('--redis-host', default='localhost', metavar='<ip address>',
+    parser.add_argument('--redis-host', default='127.0.0.1', metavar='<ip address>',
                         help="default: %(default)s")
     parser.add_argument('--redis-port', type=int, default=6379, metavar='<port>',
                         help="default: %(default)s")
-    parser.add_argument('--mongo-host', default='localhost', metavar='<ip address>',
+    parser.add_argument('--mongo-host', default='127.0.0.1', metavar='<ip address>',
                         help="default: %(default)s")
     parser.add_argument('--mongo-port', type=int, default=27017, metavar='<port>',
                         help="default: %(default)s")
