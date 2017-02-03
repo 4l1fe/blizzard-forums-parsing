@@ -18,19 +18,15 @@ class Worker(Process):
 
     YET_NO_DATA = (None, None)
 
-    def __init__(self, options, *args, **kwargs):
+    def __init__(self, options, stop_flag, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.stop_flag = options.stop_flag
+        self.stop_flag = stop_flag
         self.use_lxml = options.use_lxml
-
-        self.mc = MongoClient(options.mongo_host, options.mongo_port)
-        db = self.mc[cns.MONGO_DB]
-        self.collection = db[cns.MONGO_COLLECTION]
-
-        self.rc = Redis(options.redis_host, options.redis_port)
-        self.tree = Tree(self.rc)
-
+        self.mongo_host = options.mongo_host
+        self.mongo_port = options.mongo_port
+        self.redis_host = options.redis_host
+        self.redis_port = options.redis_port
         logger.info('Mongo connection {}:{}. Redis connection {}:{}'\
                     .format(options.mongo_host, options.mongo_port, options.redis_host, options.redis_port))
 
@@ -38,6 +34,14 @@ class Worker(Process):
         logger.info('Started')
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+        # must place here to be in forked process memory
+        mc = MongoClient(self.mongo_host, self.mongo_port)
+        db = mc[cns.MONGO_DB]
+        self.collection = db[cns.MONGO_COLLECTION]
+
+        self.rc = Redis(self.redis_host, self.redis_port)
+        self.tree = Tree(self.rc)
 
         self.documents = []  # to collect during a whole lifecircle for a batching
         while not self.stop_flag.value:
@@ -47,6 +51,9 @@ class Worker(Process):
                 data, base_url = self.get_data_and_base_url()
                 if (data, base_url) == self.YET_NO_DATA:
                     logger.info('Continue after waiting data getting. Blocking is expired')
+                    continue
+                elif not data:
+                    logger.error('No data')
                     continue
                 soup = BeautifulSoup(data.decode(), 'lxml' if self.use_lxml else 'html.parser')
                 self.parse_posts_fill_documents(soup, base_url)
@@ -99,8 +106,8 @@ class Worker(Process):
         self.add_new_urls(new_urls)
 
     def parse_topics(self, soup, base_url):
-        self._add_paginated_links(soup, base_url)
-
+        self._add_paginated_topics_link(soup, base_url)
+        
         child_nodes = []
         new_urls = []
         for topic_source in soup.find_all(class_='ForumTopic'):
@@ -118,6 +125,8 @@ class Worker(Process):
         self.add_new_urls(new_urls)
 
     def parse_posts_fill_documents(self, soup, base_url):
+        self._add_paginated_posts_links(soup, base_url)
+
         for post_source in soup.find_all(class_='TopicPost'):
             document = defaultdict(dict)
             document['post']['id'] = post_source['id']
@@ -139,6 +148,9 @@ class Worker(Process):
         """Вставка ссылок в очередь пачкой. Ссылки сохраняются
         в множество запрошенных, а в очередь только в него не входящие.
         """
+
+        if not isinstance(urls, tuple, list):
+            urls = [urls]
 
         pipeline = self.rc.pipeline()
         for url in urls:
@@ -167,11 +179,16 @@ class Worker(Process):
     def _extract_base_url(self, key):
         return key.replace(cns.DATA_KEY_PREFIX, '')
 
-    def _add_paginated_links(self, soup, base_url):
+    def _add_paginated_posts_links(self, soup, base_url):
         new_urls = []
         pagination = soup.select('.Topic-pagination--header .Pagination-button--ordinal')
         if pagination:
             last_page = int(pagination[-1]['data-page-number'])
-            urls = [urljoin(base_url, '?page='+str(n)) for n in range(1, last_page+1)]
+            urls = [urljoin(base_url, '?page=%d' % n) for n in range(1, last_page+1)]
             new_urls.extend(urls)
         self.add_new_urls(new_urls)
+
+    def _add_paginated_topics_link(self, soup, base_url):
+            href = soup.select('.Pagination-button--next')[0]['href']
+            new_url = urljoin(base_url, href)
+            self.add_new_urls(new_url)
